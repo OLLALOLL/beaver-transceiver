@@ -18,7 +18,7 @@ const S = {
   me:null, profile:null, P:{}, nick:{}, blocks:new Set(), friendships:[], convs:[], unread:{}, mentions:{},
   cur:null, msgs:[], hasOlder:false, detached:false, awayCount:0, pins:[], polls:{}, votes:{}, media:{}, revealed:new Set(),
   peers:{}, rt:null, pres:null, tab:"chats", typingOn:false, typingTimer:null, reply:null, editing:null,
-  archivedView:false, search:"", outbox:[], drafts:{}, pendingEmail:"", offline:false, deep:null
+  archivedView:false, search:"", outbox:[], drafts:{}, pendingEmail:"", offline:false, deep:null, spoilShown:new Set(), bdays:{}
 };
 const prefs = Object.assign({ sound:true, wall:"none" }, store("bt-prefs") || {});
 const wide = () => matchMedia("(min-width:760px)").matches;
@@ -45,13 +45,17 @@ function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 const usernames = () => new Set(Object.values(S.P).map(p=>p.username));
 function fmt(text){
-  let x=esc(text);
+  const blocks=[];
+  const src=String(text).replace(/```([a-z0-9+#-]*)[ \t]*\n?([\s\S]*?)```/gi,(m0,lang,code)=>{ blocks.push({ lang:lang.toLowerCase(), code }); return "\u0000"+(blocks.length-1)+"\u0000"; });
+  let x=esc(src);
+  x=x.replace(/\|\|([^|\n]+)\|\|/g,'<span class="spoiler" role="button" tabindex="0">$1</span>');
   x=x.replace(/`([^`\n]+)`/g,"<code>$1</code>");
   x=x.replace(/\*\*([^*\n]+)\*\*/g,"<b>$1</b>");
   x=x.replace(/(^|[^*])\*([^*\n]+)\*/g,"$1<i>$2</i>");
   x=x.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
   const known=usernames();
   x=x.replace(/(^|[\s(])@([a-z0-9_.]{3,20})/gi,(m,pre,u)=> known.has(u.toLowerCase()) ? `${pre}<span class="at">@${u}</span>` : m);
+  x=x.replace(/\u0000(\d+)\u0000/g,(m0,i)=>{ const b=blocks[+i]; const lang=b.lang && window.hljs?.getLanguage?.(b.lang) ? " language-"+b.lang : ""; return `<pre class="code"><code class="${lang?lang.trim():"nohighlight"}">${esc(b.code.replace(/\n$/,""))}</code></pre>`; });
   return x;
 }
 const firstUrl = (t) => (String(t||"").match(/https?:\/\/[^\s<]+/)||[])[0];
@@ -115,7 +119,7 @@ const ERRORS = {
   "no profile":"Finish setting up your profile first.", "banned":"Your account is banned.",
   "invite not found":"That invite link doesn't work any more.", "bad poll":"Polls need a question and 2–10 options.",
   "too many reports":"You've sent a lot of reports. Try again later.", "not allowed":"You can't do that.",
-  "cannot change your own role":"You can't change your own role."
+  "cannot change your own role":"You can't change your own role.", "not accepting requests":"That person isn't accepting friend requests.", "friends of friends only":"That person only accepts requests from friends of friends.", "call already over":"That call has already ended."
 };
 function friendlyErr(e, fallback){
   const m=(e?.message||"");
@@ -207,7 +211,7 @@ dragToClose($("viewer"),{
 function armed(btn, label, action){
   btn.onclick=()=>{ const old=btn.textContent; btn.textContent=label; btn.classList.add("danger"); btn.onclick=async()=>{ btn.disabled=true; await action(); btn.disabled=false; btn.textContent=old; btn.classList.remove("danger"); }; };
 }
-const ICONS={"📌":"i-pin","🔔":"i-bell","🗄️":"i-archive","📤":"i-unarchive","✓":"i-check","●":"i-unread","👥":"i-group","🔗":"i-link","↩️":"i-reply","📋":"i-copy","✏️":"i-edit","👤":"i-me","🚩":"i-flag","🗑️":"i-trash","🏷️":"i-tag","⛔":"i-block","🔨":"i-ban","➕":"i-user-plus","⭐":"i-star","⬇️":"i-star-off","🚪":"i-leave","🔍":"i-search","📱":"i-qr","🎨":"i-palette","🔐":"i-lock","🛡️":"i-shield","📷":"i-image","🎤":"i-mic","📊":"i-poll","🖼️":"i-image"};
+const ICONS={"📌":"i-pin","🔔":"i-bell","🗄️":"i-archive","📤":"i-unarchive","✓":"i-check","●":"i-unread","👥":"i-group","🔗":"i-link","↩️":"i-reply","📋":"i-copy","✏️":"i-edit","👤":"i-me","🚩":"i-flag","🗑️":"i-trash","🏷️":"i-tag","⛔":"i-block","🔨":"i-ban","➕":"i-user-plus","⭐":"i-star","⬇️":"i-star-off","🚪":"i-leave","🔍":"i-search","📱":"i-qr","🎨":"i-palette","🔐":"i-lock","🛡️":"i-shield","📷":"i-image","🎤":"i-mic","📊":"i-poll","🖼️":"i-image","📎":"i-file","🎧":"i-headset","💻":"i-devices","🔒":"i-users-lock","🎂":"i-cake","🎮":"i-game","📞":"i-phone","🎥":"i-video"};
 function menuBtn(label, onClick, opts={}){
   const m=label.match(/^(\S+)\s+([\s\S]*)$/); const icon=m && ICONS[m[1]];
   const b=h("button",{className:opts.danger?"danger":""}, icon ? svg(icon) : null, h("span",{className:"lbl-t",textContent: icon ? m[2] : label}), opts.right ? h("span",{className:"r",textContent:opts.right}) : null);
@@ -217,6 +221,7 @@ const stripEmoji = (t) => String(t||"").replace(/^(?:\p{Extended_Pictographic}|\
 function previewNode(text){
   const t=stripEmoji(text);
   if(text==="") return [svg("i-image"), "Photo"].map(x=>{ if(typeof x!=="string") x.setAttribute("class","inline-ico"); return x; });
+  if(/^File: /.test(t)){ const i=svg("i-file"); i.setAttribute("class","inline-ico"); return [i, t.slice(6)]; }
   if(/^Voice message$/.test(t)){ const i=svg("i-mic"); i.setAttribute("class","inline-ico"); return [i, "Voice message"]; }
   if(/^Poll: /.test(t) || /^📊/.test(text)){ const i=svg("i-poll"); i.setAttribute("class","inline-ico"); return [i, t.replace(/^Poll: /,"")]; }
   return [t];
@@ -348,16 +353,27 @@ const friendRow = (uid) => S.friendships.find(f=>otherOf(f)===uid);
 const isFriend = (uid) => friendRow(uid)?.status==="accepted";
 const friendIds = () => S.friendships.filter(f=>f.status==="accepted").map(otherOf);
 const isOnline = (uid) => !!S.peers[uid] && uid!==S.me?.id;
+const ACT_TYPES=[["playing","Playing","i-game"],["listening","Listening to","i-headset"],["watching","Watching","i-video"],["building","Building","i-edit"],["working","Working on","i-devices"]];
+function activityOf(uid){
+  const a=S.P[uid]?.activity; if(!a || !a.text) return null;
+  if(a.until && Date.parse(a.until)<Date.now()) return null;
+  const t=ACT_TYPES.find(x=>x[0]===a.type)||ACT_TYPES[0];
+  return { label:`${t[1]} ${a.text}`, icon:t[2] };
+}
+function activityLine(uid){ const a=activityOf(uid); if(!a) return null; return h("div",{className:"activity"}, svg(a.icon), a.label); }
+function isBirthdayToday(uid){ const b=S.bdays[uid]; if(!b) return false; const d=new Date(b.birthday+"T12:00:00"), n=new Date(); return d.getMonth()===n.getMonth() && d.getDate()===n.getDate(); }
 function presenceText(uid){
   if(isOnline(uid)) return "Online";
   const ls=S.P[uid]?.last_seen_at; return ls ? "Last seen "+ago(ls) : "Offline";
 }
 async function loadSocial(){
-  const [f, n, b] = await Promise.all([
+  const [f, n, b, bd] = await Promise.all([
     sb.from("bt_friendships").select("*"),
     sb.from("bt_nicknames").select("target_id,nickname"),
     sb.from("bt_blocks").select("blocked_id"),
+    sb.from("bt_birthdays").select("*"),
   ]);
+  S.bdays=Object.fromEntries((bd.data||[]).map(x=>[x.user_id,x]));
   if(f.error) throw f.error;
   S.friendships=f.data||[];
   S.nick=Object.fromEntries((n.data||[]).map(x=>[x.target_id,x.nickname]));
@@ -395,7 +411,7 @@ function renderFriends(){
     const rows=h("div",{className:"rows"});
     for(const uid of friends){
       const msg=h("button",{className:"pill",textContent:"Message"}); msg.onclick=(e)=>{ e.stopPropagation(); openDM(uid); };
-      const st=S.P[uid]?.status;
+      const st=activityOf(uid)?.label || S.P[uid]?.status;
       rows.append(personRow(uid, st || presenceText(uid), h("span",{className:"actions"},msg)));
     }
     box.append(rows);
@@ -470,6 +486,14 @@ async function loadConvs(){
   await ensureProfiles(data.flatMap(c=>c.bt_members.map(m=>m.user_id)));
   renderChats(); renderBadges(); scheduleSave();
   if(S.cur){ if(!curConv()){ closeChat(); toast("You're no longer in that chat"); } else renderChatHead(); }
+  for(const c of S.convs){ const me=myMember(c); if(me && c.last_message_at && c.last_message_user && c.last_message_user!==S.me.id && Date.parse(c.last_message_at)>Date.parse(me.last_delivered_at||0)) markDelivered(c.id); }
+}
+const deliverTimers={};
+function markDelivered(cid){
+  const c=S.convs.find(x=>x.id===cid); const me=myMember(c); if(!me) return;
+  me.last_delivered_at=new Date().toISOString();
+  clearTimeout(deliverTimers[cid]);
+  deliverTimers[cid]=setTimeout(()=>sb.from("bt_members").update({ last_delivered_at:new Date().toISOString() }).match({ conversation_id:cid, user_id:S.me.id }).then(()=>{}), 700);
 }
 let convTimer=null; const reloadConvs=()=>{ clearTimeout(convTimer); convTimer=setTimeout(()=>loadConvs().catch(()=>{}),300); };
 function previewOf(c){
@@ -512,6 +536,13 @@ function renderChats(){
     const b=h("button",{className:"btn",textContent: friendIds().length ? "Start a chat" : "Find friends"});
     b.onclick=()=> friendIds().length ? newChatSheet() : setTab("friends");
     e.append(b); box.append(e); return;
+  }
+  const bdays=friendIds().filter(isBirthdayToday);
+  if(bdays.length){
+    const names=bdays.map(firstName); const who=names.length===1?names[0]:names.slice(0,-1).join(", ")+" and "+names[names.length-1];
+    const bn=h("button",{className:"bday-banner"}, svg("i-cake"), h("span",{textContent:`It's ${who}'s birthday today. Say happy birthday!`}));
+    bn.onclick=()=>openDM(bdays[0]);
+    box.append(bn);
   }
   active.forEach(c=>box.append(chatRow(c)));
   if(archived.length){
@@ -683,7 +714,11 @@ function renderChatHead(){
   if(!ok) $("blocked").textContent = S.blocks.has(dmOther(c)) ? "You blocked "+nameOf(dmOther(c))+". Unblock them from their profile to chat." : "You're not friends with "+nameOf(dmOther(c))+" any more. Add them again to keep chatting.";
   $("input").placeholder = c.kind==="dm" ? "Message "+firstName(dmOther(c)) : "Message "+c.name;
   $("attachBtn").hidden=false;
+  $("callBtn").hidden = c.kind!=="dm" || !ok; $("videoBtn").hidden = c.kind!=="dm" || !ok; $("roomBtn").hidden = c.kind!=="group" || (R.joined && R.cid===c.id);
 }
+$("callBtn").onclick=()=>startCall(false);
+$("videoBtn").onclick=()=>startCall(true);
+$("roomBtn").onclick=()=>{ const c=curConv(); if(c) joinRoom(c.id); };
 async function openConv(id){
   const c=S.convs.find(x=>x.id===id); if(!c) return;
   const changed=S.cur!==id;
@@ -701,6 +736,7 @@ async function openConv(id){
     paintFromCache(id);
     S.pres?.track({ ch:id, typing:false });
     renderPinned();
+    if(c.kind==="group") watchRoom(c.id); else unwatchRoom();
     await Promise.all([loadMessages(id).catch(()=>{}), loadPins(id).catch(()=>{})]);
   }
   markRead(); renderChats();
@@ -712,6 +748,7 @@ function closeChat(){
   for(const el of ["chatBar","msgsWrap","typing","composer","blocked","pinnedBar","chatSearchBar","composeCtx","mentionPop","recorder"]) $(el).hidden=true;
   $("chatPlaceholder").hidden=false;
   S.pres?.track({ ch:null, typing:false });
+  unwatchRoom(); $("roomBar").hidden=true;
   renderChats();
 }
 $("backBtn").onclick=closeChat;
@@ -725,7 +762,7 @@ function markRead(){
   renderBadges();
   if(had) renderChats();
   clearTimeout(readTimer);
-  readTimer=setTimeout(()=>sb.from("bt_members").update({ last_read_at:new Date().toISOString(), marked_unread:false }).match({ conversation_id:c.id, user_id:S.me.id }).then(()=>{}), 500);
+  readTimer=setTimeout(()=>sb.from("bt_members").update({ last_read_at:new Date().toISOString(), last_delivered_at:new Date().toISOString(), marked_unread:false }).match({ conversation_id:c.id, user_id:S.me.id }).then(()=>{}), 500);
 }
 
 /* messages */
@@ -792,7 +829,9 @@ function paint(){
   const myName=S.profile.username;
   const lastMine=[...S.msgs].reverse().find(m=>m.user_id===S.me.id && m.kind!=="system" && !m._pending && !m._failed);
   let prevDay="", prev=null;
+  const { albumOf, skip } = groupAlbums(S.msgs);
   S.msgs.forEach((m,i)=>{
+    if(skip.has(m.id)) return;
     const ts=Date.parse(m.created_at), d=dayStr(ts);
     if(d!==prevDay){ box.append(h("div",{className:"day",textContent:d})); prevDay=d; prev=null; }
     if(m.kind==="system"){ box.append(h("div",{className:"sys",textContent:m.content})); prev=null; return; }
@@ -816,14 +855,23 @@ function paint(){
       bub.append(q);
     }
     if(m.kind==="poll") bub.append(pollEl(m));
+    else if(albumOf[m.id]) bub.append(albumEl(albumOf[m.id]));
     else if(m.media_kind==="image") bub.append(photoEl(m));
     else if(m.media_kind==="audio") bub.append(voiceEl(m));
-    if(m.kind==="text" && m.content && m.media_kind!=="audio"){ const t=h("div",{className:"text"}); t.innerHTML=fmt(m.content); bub.append(t); }
+    else if(m.media_kind==="file") bub.append(fileEl(m));
+    if(m.kind==="text" && m.content && m.media_kind!=="audio" && m.media_kind!=="file"){
+      const t=h("div",{className:"text"}); t.innerHTML=fmt(m.content);
+      t.querySelectorAll(".spoiler").forEach((el,k)=>{ el.dataset.k=k; if(S.spoilShown.has(m.id+":"+k)) el.classList.add("shown"); });
+      bub.append(t);
+    }
     const url=m.kind==="text" && !m.media_path && firstUrl(m.content);
     if(url){ const card=linkCard(url); if(card) bub.append(card); }
-    bub.append(h("span",{className:"when"}, m.edited_at ? "edited ·" : null, m._failed ? "Not sent · tap to retry" : m._pending ? "Sending…" : timeStr(ts)));
+    bub.append(h("span",{className:"when"}, m.edited_at ? "edited ·" : null, m._failed ? "Not sent · tap to retry" : m._pending ? "Sending…" : timeStr(ts), mine && !m._failed ? tickEl(c,m) : null));
     gestures(bub,{
-      onTap:(ev)=>{ if(ev.target.closest("a,.quote,.photo,.play,.opt")) return; if(m._failed) retry(m); },
+      onTap:(ev)=>{
+        const sp=ev.target.closest(".spoiler");
+        if(sp){ const key=m.id+":"+sp.dataset.k; sp.classList.toggle("shown"); sp.classList.contains("shown") ? S.spoilShown.add(key) : S.spoilShown.delete(key); return; }
+        if(ev.target.closest("a,.quote,.photo,.play,.opt,.tile,.dl,.speed,pre")) return; if(m._failed) retry(m); },
       onLong:()=>{ if(!m._pending && !m._failed) msgSheet(m); },
       onSwipe: m._pending||m._failed ? null : ()=>{ if(canPost(c)) setReply(m); },
       swipeTarget: row
@@ -842,14 +890,74 @@ function paint(){
       for(const k of keys){ const b=h("button",{className:m.rx[k].includes(S.me.id)?"mine":"","aria-label":k+" "+m.rx[k].length},k,h("span",{textContent:m.rx[k].length})); b.onclick=()=>react(m,k); r.append(b); }
       box.append(r);
     }
-    if(lastMine && m.id===lastMine.id) box.append(h("div",{className:"seen",textContent:seenLabel(c,m)}));
+    if(isGroup && lastMine && m.id===lastMine.id) box.append(h("div",{className:"seen",textContent:seenLabel(c,m)}));
     prev=m;
   });
+  if(window.hljs) box.querySelectorAll("pre.code code:not(.nohighlight)").forEach(el=>{ try{ hljs.highlightElement(el); }catch{} });
+}
+function tickState(c,m){
+  if(m._pending) return "pending";
+  const others=c.bt_members.filter(x=>x.user_id!==S.me.id); if(!others.length) return "sent";
+  const t=Date.parse(m.created_at);
+  if(others.every(x=>Date.parse(x.last_read_at)>=t)) return "seen";
+  if(others.every(x=>Date.parse(x.last_delivered_at||0)>=t || Date.parse(x.last_read_at)>=t)) return "delivered";
+  return "sent";
+}
+function tickEl(c,m){
+  const st=tickState(c,m);
+  const s=svg(st==="pending"?"i-clock":st==="sent"?"i-check":"i-check2");
+  s.setAttribute("class","tick"+(st==="seen"?" seen":"")); s.setAttribute("aria-label",{pending:"Sending",sent:"Sent",delivered:"Delivered",seen:"Seen"}[st]);
+  return s;
+}
+function groupAlbums(list){
+  const albumOf={}, skip=new Set();
+  for(let i=0;i<list.length;i++){
+    const m=list[i], a=m.media_meta?.album;
+    if(!a || m.media_kind!=="image" || skip.has(m.id)) continue;
+    const group=[m];
+    for(let j=i+1;j<list.length;j++){ const n=list[j]; if(n.media_meta?.album===a && n.user_id===m.user_id){ group.push(n); skip.add(n.id); } else break; }
+    if(group.length>1){ group.sort((x,y)=>(x.media_meta.i||0)-(y.media_meta.i||0)); albumOf[m.id]=group; }
+  }
+  return { albumOf, skip };
+}
+const signing=new Set();
+function needSign(paths){
+  const now=Date.now(); const miss=paths.filter(p=>p && !(S.media[p] && S.media[p].exp>now) && !signing.has(p));
+  if(!miss.length) return;
+  miss.forEach(p=>signing.add(p));
+  signMedia(miss).then(()=>{ miss.forEach(p=>signing.delete(p)); if(miss.some(p=>S.media[p])) renderMsgs(); });
+}
+function albumEl(group){
+  const n=group.length;
+  const box=h("div",{className:"album "+(n===2?"n2":n===3?"n3":n===4?"n4":"many")});
+  const show=group.slice(0, n>6?6:n);
+  show.forEach((g,idx)=>{
+    const tile=h("div",{className:"tile"}); const url=mediaUrl(g);
+    if(url) tile.append(h("img",{src:url,alt:"Photo",loading:"lazy",decoding:"async"}));
+    if(idx===show.length-1 && n>show.length) tile.append(h("div",{className:"more",textContent:"+"+(n-show.length)}));
+    tile.onclick=(e)=>{ e.stopPropagation(); const u=mediaUrl(g); if(u) openViewer(u); };
+    box.append(tile);
+  });
+  needSign(group.map(g=>g.media_path));
+  return box;
+}
+const sizeStr=(b)=> !b ? "" : b<1024 ? b+" B" : b<1048576 ? (b/1024).toFixed(0)+" KB" : (b/1048576).toFixed(1)+" MB";
+function fileEl(m){
+  const meta=m.media_meta||{}; const ext=((meta.name||"").split(".").pop()||"").toUpperCase().slice(0,6);
+  const dl=h("button",{className:"dl",type:"button","aria-label":"Download "+(meta.name||"file")}, svg("i-download"));
+  dl.onclick=async(e)=>{
+    e.stopPropagation(); if(m._pending) return;
+    const { data, error } = await sb.storage.from("bt-chat-media").createSignedUrl(m.media_path, 600, { download: meta.name || true });
+    if(error){ toast("Couldn't get that file"); return; }
+    const a=h("a",{href:data.signedUrl,target:"_blank",rel:"noopener"}); document.body.append(a); a.click(); a.remove();
+  };
+  return h("div",{className:"file"}, h("div",{className:"ficon"}, svg("i-file"), h("span",{textContent:ext})), h("div",{className:"fmeta"}, h("b",{textContent:meta.name||"File"}), h("span",{textContent:sizeStr(meta.size)+(m._pending?" · uploading…":"")})), dl);
 }
 function snippet(r){
   if(r.kind==="poll") return "Poll: "+stripEmoji(r.content).replace(/^Poll: /,"");
   if(r.media_kind==="image") return r.content ? "Photo: "+r.content : "Photo";
   if(r.media_kind==="audio") return "Voice message";
+  if(r.media_kind==="file") return "File: "+(r.media_meta?.name||"file");
   return (r.content||"").replace(/\s+/g," ").slice(0,120);
 }
 
@@ -867,13 +975,13 @@ function photoEl(m){
   const box=h("div",{className:"photo"}); box.style.aspectRatio=`${w}/${hh}`; box.style.width=Math.min(300, w>hh?300:Math.round(300*w/hh))+"px";
   const url=mediaUrl(m);
   if(url){ const img=h("img",{src:url,alt:"Photo",loading:"lazy",decoding:"async"}); box.append(img); box.onclick=(e)=>{ e.stopPropagation(); openViewer(url); }; }
-  else signMedia([m.media_path]).then(()=>{ if(S.media[m.media_path]) renderMsgs(); });
+  else needSign([m.media_path]);
   return box;
 }
 function openViewer(url){ $("viewerImg").src=url; $("viewer").hidden=false; }
 $("viewerClose").onclick=()=>{ $("viewer").hidden=true; $("viewerImg").src=""; };
 $("viewer").onclick=(e)=>{ if(e.target.id==="viewer"){ $("viewer").hidden=true; $("viewerImg").src=""; } };
-let audioEl=null, audioMsg=null;
+let audioEl=null, audioMsg=null, voiceRate=1;
 function voiceEl(m){
   const dur=m.media_meta?.d||0;
   const playing=audioMsg===m.id && audioEl && !audioEl.paused;
@@ -887,14 +995,16 @@ function voiceEl(m){
     audioEl?.pause();
     if(!mediaUrl(m)) await signMedia([m.media_path]);
     const url=mediaUrl(m); if(!url){ toast("Couldn't load that voice message"); return; }
-    audioEl=new Audio(url); audioMsg=m.id;
+    audioEl=new Audio(url); audioMsg=m.id; audioEl.playbackRate=voiceRate;
     audioEl.ontimeupdate=()=>{ const row=document.querySelector(`.m[data-id="${m.id}"]`); if(!row) return; const b=row.querySelector(".track i"), d=row.querySelector(".dur"); if(b) b.style.width=(audioEl.currentTime/(audioEl.duration&&isFinite(audioEl.duration)?audioEl.duration:dur||1)*100)+"%"; if(d) d.textContent=durStr(audioEl.currentTime); };
     audioEl.onplay=audioEl.onpause=()=>renderMsgs();
     audioEl.onended=()=>{ audioMsg=null; renderMsgs(); };
     audioEl.onerror=()=>{ toast("This device can't play that voice message"); audioMsg=null; renderMsgs(); };
     audioEl.play().catch(()=>toast("Couldn't play that voice message"));
   };
-  return h("div",{className:"voice"}, btn, track, t);
+  const sp=h("button",{className:"speed",type:"button","aria-label":"Playback speed",textContent:voiceRate+"×"});
+  sp.onclick=(e)=>{ e.stopPropagation(); voiceRate = voiceRate===1 ? 1.5 : voiceRate===1.5 ? 2 : 1; if(audioEl) audioEl.playbackRate=voiceRate; renderMsgs(); };
+  return h("div",{className:"voice"}, btn, track, t, sp);
 }
 
 /* link previews */
@@ -1005,9 +1115,11 @@ function msgSheet(m){
       const del=menuBtn("🗑️  Delete for everyone",null,{ danger:true });
       del.onclick=()=>{ del.querySelector(".lbl-t").textContent="Tap again to delete"; del.onclick=async()=>{
         closeSheet();
-        const { error } = await sb.from("bt_messages").delete().eq("id",m.id);
+        const group = m.media_meta?.album ? S.msgs.filter(x=>x.media_meta?.album===m.media_meta.album && x.user_id===S.me.id) : [m];
+        const ids=group.map(x=>x.id);
+        const { error } = await sb.from("bt_messages").delete().in("id",ids);
         if(error) toast("Couldn't delete that message");
-        else { S.msgs=S.msgs.filter(x=>x.id!==m.id); renderMsgs(); if(m.media_path) sb.storage.from("bt-chat-media").remove([m.media_path]).then(()=>{}); }
+        else { S.msgs=S.msgs.filter(x=>!ids.includes(x.id)); renderMsgs(); const paths=group.map(x=>x.media_path).filter(Boolean); if(paths.length) sb.storage.from("bt-chat-media").remove(paths).then(()=>{}); }
       }; };
       menu.append(del);
     }
@@ -1220,7 +1332,15 @@ async function send(m){
   else dropOutbox(m.id);
   renderMsgs();
 }
-function retry(m){ m._failed=false; m._pending=true; renderMsgs(); send(m); }
+async function retry(m){
+  m._failed=false; m._pending=true; renderMsgs();
+  if(m._blob && !m._uploaded){
+    const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, m._blob, { contentType:m._ctype, cacheControl:"31536000" });
+    if(error && !/exists|duplicate/i.test(error.message)){ m._pending=false; m._failed=true; renderMsgs(); toast("Upload failed again. Check your connection."); return; }
+    m._uploaded=true;
+  }
+  send(m);
+}
 function bumpConv(m){
   const c=S.convs.find(x=>x.id===m.conversation_id); if(!c) return reloadConvs();
   c.last_message_at=m.created_at;
@@ -1247,15 +1367,18 @@ $("attachBtn").onclick=()=>{
   openSheet(b=>{
     b.append(h("h2",{textContent:"Send…"}));
     const menu=h("div",{className:"menu"});
-    menu.append(menuBtn("📷  Photo",()=>{ closeSheet(); $("photoFile").click(); }));
+    menu.append(menuBtn("📷  Photos",()=>{ closeSheet(); $("photoFile").click(); }));
     menu.append(menuBtn("🎤  Voice message",()=>{ closeSheet(); startRecording(); }));
+    menu.append(menuBtn("📎  File",()=>{ closeSheet(); $("fileFile").click(); }));
     if(c.kind==="group") menu.append(menuBtn("📊  Poll",pollSheet));
     b.append(menu);
   });
 };
 $("photoFile").addEventListener("change", async ()=>{
-  const file=$("photoFile").files[0]; $("photoFile").value="";
-  if(!file || !S.cur) return;
+  const files=[...$("photoFile").files].filter(f=>f.type.startsWith("image/")).slice(0,10); $("photoFile").value="";
+  if(!files.length || !S.cur) return;
+  if(files.length>1) return albumSheet(files);
+  const file=files[0];
   if(!file.type.startsWith("image/")){ toast("Pick an image file"); return; }
   let img;
   try{ img=await resizeImage(file, 1600); }catch{ toast("Couldn't open that picture"); return; }
@@ -1270,17 +1393,59 @@ $("photoFile").addEventListener("change", async ()=>{
       const caption=cap.value.trim();
       if(caption===input.value.trim()){ input.value=""; delete S.drafts[cid]; store(ukey("bt-drafts"), S.drafts); autoGrow(); }
       const id=uuid(), ext=img.blob.type==="image/webp"?"webp":"jpg";
-      const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:caption, reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"image", media_meta:{ w:img.w, h:img.h }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:local };
+      const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:caption, reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"image", media_meta:{ w:img.w, h:img.h }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:local, _blob:img.blob, _ctype:img.blob.type };
       setReply(null);
       if(S.cur===cid){ S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight; }
       const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, img.blob, { contentType:img.blob.type, cacheControl:"31536000" });
       if(error){ m._pending=false; m._failed=true; renderMsgs(); toast(isNetErr(error)?"You're offline — photos send when you're back online. Tap to retry.":"Couldn't upload that photo"); return; }
-      S.media[m.media_path]={ url:local, exp:Date.now()+3600e3 };
+      m._uploaded=true; S.media[m.media_path]={ url:local, exp:Date.now()+3600e3 };
       bumpConv(m); send(m);
     };
     b.append(h("h2",{textContent:"Send photo"}), prev, h("label",{className:"lbl",htmlFor:"photoCap",textContent:"Caption"}), cap, go);
   });
 });
+async function albumSheet(files){
+  toast("Preparing photos…");
+  const imgs=[]; for(const f of files){ try{ imgs.push(await resizeImage(f,1600)); }catch{} }
+  if(!imgs.length){ toast("Couldn't open those pictures"); return; }
+  const cid=S.cur; const urls=imgs.map(i=>URL.createObjectURL(i.blob));
+  openSheet(b=>{
+    const n=imgs.length;
+    const grid=h("div",{className:"album "+(n===2?"n2":n===3?"n3":n===4?"n4":"many"),style:"margin:0 auto;width:100%"});
+    urls.forEach(u=>grid.append(h("div",{className:"tile"},h("img",{src:u,alt:""}))));
+    const cap=h("input",{className:"input",id:"albumCap",maxLength:2000,placeholder:"Add a caption (optional)"});
+    const go=h("button",{className:"btn",textContent:`Send ${n} photos`});
+    go.onclick=async()=>{
+      closeSheet();
+      const album=uuid(), base=Date.now(), reply=S.reply?.id||null; setReply(null);
+      const msgs=imgs.map((img,i)=>{ const id=uuid(), ext=img.blob.type==="image/webp"?"webp":"jpg";
+        return { id, conversation_id:cid, user_id:S.me.id, kind:"text", content:i===0?cap.value.trim():"", reply_to:i===0?reply:null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"image", media_meta:{ w:img.w, h:img.h, album, i, n }, created_at:new Date(base+i).toISOString(), rx:{}, _pending:true, _local:urls[i], _blob:img.blob, _ctype:img.blob.type }; });
+      if(S.cur===cid){ S.msgs.push(...msgs); paint(); $("msgs").scrollTop=$("msgs").scrollHeight; }
+      for(const m of msgs){
+        const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, m._blob, { contentType:m._ctype, cacheControl:"31536000" });
+        if(error){ m._pending=false; m._failed=true; continue; }
+        m._uploaded=true; S.media[m.media_path]={ url:m._local, exp:Date.now()+3600e3 };
+        await send(m);
+      }
+      bumpConv(msgs[0]); renderMsgs();
+    };
+    b.append(h("h2",{textContent:"Send photos"}), grid, h("label",{className:"lbl",htmlFor:"albumCap",textContent:"Caption"}), cap, go);
+  });
+}
+$("fileFile").addEventListener("change", ()=>{ const f=$("fileFile").files[0]; $("fileFile").value=""; if(f) sendFile(f); });
+async function sendFile(file){
+  const cid=S.cur; if(!cid) return;
+  if(file.size>25*1024*1024){ toast("Files can be up to 25 MB"); return; }
+  const id=uuid(); const ext=((file.name.match(/\.([a-z0-9]{1,10})$/i)||[])[1]||"bin").toLowerCase();
+  const ctype = ext==="pdf" ? "application/pdf" : "application/octet-stream";
+  const name=file.name.replace(/[\u0000-\u001f]/g,"").slice(0,120) || "file."+ext;
+  const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"File: "+name, reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"file", media_meta:{ name, size:file.size }, created_at:new Date().toISOString(), rx:{}, _pending:true, _blob:file, _ctype:ctype };
+  setReply(null);
+  S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight;
+  const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, file, { contentType:ctype, cacheControl:"31536000" });
+  if(error){ m._pending=false; m._failed=true; renderMsgs(); toast(isNetErr(error)?"You're offline. Tap the file to retry.":"Couldn't upload that file"); return; }
+  m._uploaded=true; bumpConv(m); send(m);
+}
 async function resizeImage(file, max, square){
   const bmp = await (window.createImageBitmap ? createImageBitmap(file).catch(()=>null) : null) || await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); });
   let w=bmp.width, hh=bmp.height, sx=0, sy=0, sw=w, sh=hh;
@@ -1335,12 +1500,12 @@ async function finishRecording(){
   const blob=new Blob(recChunks,{ type:mime });
   const ext=mime.includes("mp4")?"m4a":mime.includes("ogg")?"ogg":"webm";
   const id=uuid();
-  const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"Voice message", reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"audio", media_meta:{ d:Math.round(secs) }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:URL.createObjectURL(blob) };
+  const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"Voice message", reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"audio", media_meta:{ d:Math.round(secs) }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:URL.createObjectURL(blob), _blob:blob, _ctype:mime };
   setReply(null);
   S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight;
   const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, blob, { contentType:mime, cacheControl:"31536000" });
   if(error){ m._pending=false; m._failed=true; renderMsgs(); toast("Couldn't upload the voice message"); return; }
-  S.media[m.media_path]={ url:m._local, exp:Date.now()+3600e3 };
+  m._uploaded=true; S.media[m.media_path]={ url:m._local, exp:Date.now()+3600e3 };
   bumpConv(m); send(m);
 }
 
@@ -1360,11 +1525,15 @@ async function openProfile(uid){
     const on=isOnline(uid);
     const top=h("div",{className:"prof with-banner"}, h("span",{className:"av-wrap av-ring"+(on?" online":"")},avatar(uid,96)), h("h2",{textContent:nameOf(uid)}));
     if(S.nick[uid]) top.append(h("div",{className:"real",textContent:p.display_name}));
-    top.append(h("div",{className:"handle",textContent:"@"+p.username}), h("div",{className:"status"+(on?" on":""),textContent:presenceText(uid)}));
+    top.append(h("div",{className:"handle"}, "@"+p.username, p.pronouns ? h("span",{className:"pron",textContent:" · "+p.pronouns}) : null), h("div",{className:"status"+(on?" on":""),textContent:presenceText(uid)}));
+    const act=activityLine(uid); if(act) top.append(act);
     if(p.status) top.append(h("div",{className:"custom",textContent:p.status}));
     if(p.bio) top.append(h("p",{className:"bio",textContent:p.bio}));
+    const lk=linkChips(p.links); if(lk) top.append(lk);
     const facts=h("div",{className:"facts"});
     facts.append(h("div",{className:"fact"},h("small",{textContent:"Joined"}),h("b",{textContent:longDate(p.created_at)})));
+    const bd=S.bdays[uid];
+    if(bd) facts.append(h("div",{className:"fact"},h("small",{textContent:isBirthdayToday(uid)?"Birthday today":"Birthday"}),h("b",{textContent:bdayText(bd)})));
     if(f?.status==="accepted") facts.append(h("div",{className:"fact"},h("small",{textContent:"Friends for"}),h("b",{textContent:since(f.responded_at||f.created_at)})));
     else facts.append(h("div",{className:"fact"},h("small",{textContent:"Friendship"}),h("b",{textContent: blocked ? "Blocked" : !f ? "Not friends" : f.requester===S.me.id ? "Request sent" : "Wants to be friends"})));
     const mf=h("div",{className:"fact wide"},h("small",{textContent:`Mutual friends · ${mids.length}`}));
@@ -1627,13 +1796,18 @@ function renderMe(){
   const p=S.profile; if(!p) return;
   $("meAv").replaceChildren(avatar(S.me.id,104));
   $("meBanner").style.backgroundImage = p.banner_url ? `url("${p.banner_url}")` : "";
-  $("meDisplay").textContent=p.display_name; $("meHandle").textContent="@"+p.username;
+  $("meDisplay").textContent=p.display_name; $("meHandle").textContent="@"+p.username+(p.pronouns?" · "+p.pronouns:"");
+  const a=activityOf(S.me.id); $("activityBtn").replaceChildren(svg(a?.icon||"i-game"), a ? a.label : "Set an activity"); $("activityBtn").classList.toggle("set",!!a);
   $("meStatus").textContent=p.status||""; $("meJoined").textContent="Joined "+longDate(p.created_at);
   renderSettings();
 }
 function fillMeForm(){
   const p=S.profile; if(!p) return;
   $("meDisplayIn").value=p.display_name; $("meUserIn").value=p.username; $("meBioIn").value=p.bio||""; $("meStatusIn").value=p.status||"";
+  $("mePronounsIn").value=p.pronouns||"";
+  const bd=S.bdays[S.me.id]; $("meBdayIn").value=bd?.birthday||""; $("meBdayYear").checked=!!bd?.show_year;
+  $("meBdayIn").max=new Date().toISOString().slice(0,10);
+  renderLinkEditor(p.links||[]);
   $("bioCount").textContent=(p.bio||"").length+"/160"; $("statusCount").textContent=(p.status||"").length+"/60"; $("meUserNote").textContent=""; $("meErr").textContent="";
   const uLeft=cooldownLeft(p.username_changed_at,180), dLeft=cooldownLeft(p.display_name_changed_at,30);
   $("meUserIn").disabled=uLeft>0; $("meDisplayIn").disabled=dLeft>0;
@@ -1647,7 +1821,9 @@ $("meForm").addEventListener("submit", async (e)=>{
   err.textContent="";
   if(!d){ err.textContent="Enter a display name."; return; }
   if(!USER_RE.test(u)){ err.textContent="Usernames are 3–20 lowercase letters, numbers, dots or underscores."; return; }
-  const patch={ bio, status };
+  const links=[...$("meLinks").querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean);
+  for(const u of links){ if(!/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(u)){ err.textContent="Links must start with https:// — check “"+u.slice(0,40)+"”."; return; } }
+  const patch={ bio, status, pronouns:$("mePronounsIn").value.trim(), links:links.map(url=>({ url })) };
   if(d!==p.display_name) patch.display_name=d;
   if(u!==p.username){
     if(!(await usernameFree(u))){ err.textContent="That username is taken. Pick another."; return; }
@@ -1660,8 +1836,71 @@ $("meForm").addEventListener("submit", async (e)=>{
   const { data, error } = await sb.from("bt_profiles").update(patch).eq("id",S.me.id).select().single();
   $("meSave").disabled=false;
   if(error){ err.textContent=friendlyErr(error,"Couldn't save. Try again."); return; }
+  const bday=$("meBdayIn").value, year=$("meBdayYear").checked, cur=S.bdays[S.me.id];
+  if(bday && (!cur || cur.birthday!==bday || cur.show_year!==year)){
+    const { error:be } = await sb.from("bt_birthdays").upsert({ user_id:S.me.id, birthday:bday, show_year:year });
+    if(!be) S.bdays[S.me.id]={ user_id:S.me.id, birthday:bday, show_year:year };
+  } else if(!bday && cur){ await sb.from("bt_birthdays").delete().eq("user_id",S.me.id); delete S.bdays[S.me.id]; }
   S.profile=S.P[S.me.id]=data; renderMe(); fillMeForm(); toast("Profile saved");
 });
+function renderLinkEditor(list){
+  const box=$("meLinks"); box.replaceChildren();
+  for(const l of list) addLinkRow(l.url);
+  $("addLinkBtn").hidden = box.children.length>=6;
+}
+function addLinkRow(v=""){
+  const box=$("meLinks"); if(box.children.length>=6) return;
+  const inp=h("input",{className:"input",type:"url",inputMode:"url",placeholder:"https://youtube.com/@you",value:v,autocapitalize:"none"});
+  const x=h("button",{type:"button","aria-label":"Remove link"}, svg("i-x")); x.onclick=()=>{ row.remove(); $("addLinkBtn").hidden=false; };
+  const row=h("div",{className:"link-row"}, inp, x); box.append(row);
+  $("addLinkBtn").hidden = box.children.length>=6;
+  return inp;
+}
+$("addLinkBtn").onclick=()=>addLinkRow().focus();
+function linkLabel(url){
+  let host=""; try{ host=new URL(url).hostname.replace(/^www\./,""); }catch{ return "Link"; }
+  const known=[["youtube.com","YouTube"],["youtu.be","YouTube"],["discord.gg","Discord"],["discord.com","Discord"],["curseforge.com","CurseForge"],["github.com","GitHub"],["twitch.tv","Twitch"],["tiktok.com","TikTok"],["x.com","X"],["twitter.com","X"],["instagram.com","Instagram"],["mcpedl.com","MCPEDL"],["modrinth.com","Modrinth"],["spotify.com","Spotify"]];
+  const k=known.find(([d])=>host===d||host.endsWith("."+d)); return k ? k[1] : host;
+}
+function linkChips(list){
+  if(!Array.isArray(list) || !list.length) return null;
+  const box=h("div",{className:"chips"});
+  for(const l of list){ if(!/^https?:\/\//i.test(l?.url||"")) continue; box.append(h("a",{className:"chip",href:l.url,target:"_blank",rel:"noopener noreferrer nofollow"}, svg("i-link"), linkLabel(l.url))); }
+  return box.children.length ? box : null;
+}
+function bdayText(b){
+  const d=new Date(b.birthday+"T12:00:00");
+  let t=d.toLocaleDateString("en-GB",{ day:"numeric", month:"long" });
+  if(b.show_year){ const n=new Date(); let age=n.getFullYear()-d.getFullYear(); const before=(n.getMonth()<d.getMonth())||(n.getMonth()===d.getMonth() && n.getDate()<d.getDate()); if(before) age--; t+=` · ${age} years old`; }
+  return t;
+}
+$("activityBtn").onclick=()=>activitySheet();
+function activitySheet(){
+  const cur=S.profile.activity;
+  openSheet(b=>{
+    b.append(h("h2",{textContent:"Activity"}), h("p",{className:"sub",textContent:"Show friends what you're up to. It appears under your name."}));
+    let type=cur?.type||"playing", dur="4h";
+    const seg=h("div",{className:"seg",style:"grid-auto-flow:row;grid-template-columns:repeat(3,1fr)"});
+    for(const [v,l] of ACT_TYPES){ const btn=h("button",{type:"button","aria-pressed":String(type===v),textContent:l}); btn.onclick=()=>{ type=v; [...seg.children].forEach(x=>x.setAttribute("aria-pressed",String(x===btn))); }; seg.append(btn); }
+    const txt=h("input",{className:"input",id:"actText",maxLength:60,placeholder:"e.g. Minecraft Bedrock",value:cur?.text||""});
+    const seg2=h("div",{className:"seg"});
+    for(const [v,l] of [["1h","1 hour"],["4h","4 hours"],["day","Today"],["none","Until I clear it"]]){ const btn=h("button",{type:"button","aria-pressed":String(dur===v),textContent:l}); btn.onclick=()=>{ dur=v; [...seg2.children].forEach(x=>x.setAttribute("aria-pressed",String(x===btn))); }; seg2.append(btn); }
+    const go=h("button",{className:"btn",textContent:"Show activity"});
+    go.onclick=async()=>{
+      const text=txt.value.trim(); if(!text){ txt.focus(); return; }
+      let until=null; const now=new Date();
+      if(dur==="1h") until=new Date(now.getTime()+3600e3); else if(dur==="4h") until=new Date(now.getTime()+4*3600e3); else if(dur==="day"){ until=new Date(now); until.setHours(23,59,59,0); }
+      await saveActivity({ type, text, until:until?until.toISOString():null });
+    };
+    b.append(h("label",{className:"lbl",textContent:"What kind"}), seg, h("label",{className:"lbl",htmlFor:"actText",textContent:"What"}), txt, h("label",{className:"lbl",textContent:"For how long"}), seg2, go);
+    if(cur){ const cl=h("button",{className:"btn ghost",textContent:"Clear activity"}); cl.onclick=()=>saveActivity(null); b.append(cl); }
+  });
+}
+async function saveActivity(a){
+  const { data, error } = await sb.from("bt_profiles").update({ activity:a }).eq("id",S.me.id).select().single();
+  if(error){ toast("Couldn't save your activity"); return; }
+  S.profile=S.P[S.me.id]=data; closeSheet(); renderMe(); toast(a?"Activity updated":"Activity cleared");
+}
 $("avatarBtn").onclick=()=>{
   openSheet(b=>{
     b.append(h("h2",{textContent:"Profile picture"}));
@@ -1708,7 +1947,9 @@ function renderSettings(){
     menuBtn("📱  My QR code",myQr),
     menuBtn("🎨  Appearance",appearanceSheet),
     menuBtn("🔔  Notifications & sounds",notificationsSheet),
+    menuBtn("🔒  Privacy",privacySheet,{ right:{everyone:"Everyone",fof:"Friends of friends",nobody:"Nobody"}[S.profile?.add_policy||"everyone"] }),
     menuBtn("⛔  Blocked users",blockedSheet,{ right:String(S.blocks.size) }),
+    menuBtn("💻  Devices",devicesSheet),
     menuBtn("🔐  Email & password",accountSheet)
   );
   if(S.profile?.is_admin) menu.append(menuBtn("🛡️  Admin",adminSheet));
@@ -1813,6 +2054,44 @@ function blip(){
     g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.18,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.22);
     o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t+0.25);
   }catch{}
+}
+function privacySheet(){
+  openSheet(b=>{
+    b.append(h("h2",{textContent:"Privacy"}), h("h3",{textContent:"Who can send me friend requests"}));
+    for(const [v,label,desc] of [["everyone","Everyone","Anyone who knows your username"],["fof","Friends of friends","Only people who share a friend with you"],["nobody","Nobody","You can still add people yourself"]]){
+      const inp=h("input",{type:"radio",name:"addp",checked:(S.profile.add_policy||"everyone")===v});
+      inp.onchange=async()=>{ const { data, error } = await sb.from("bt_profiles").update({ add_policy:v }).eq("id",S.me.id).select().single(); if(error){ toast("Couldn't save that"); return; } S.profile=S.P[S.me.id]=data; renderSettings(); toast("Saved"); };
+      b.append(h("label",{className:"radio"}, inp, h("span",{}, h("b",{textContent:label}), h("div",{className:"hint",style:"margin:0",textContent:desc}))));
+    }
+    b.append(h("p",{className:"hint",textContent:"Your birthday is only shown to friends. Blocked people can never send you requests."}));
+  });
+}
+function deviceName(ua){
+  ua=ua||"";
+  const os=/iPhone|iPad|iPod/.test(ua)?"iPhone":/Android/.test(ua)?"Android":/Windows/.test(ua)?"Windows":/Mac OS X|Macintosh/.test(ua)?"Mac":/CrOS/.test(ua)?"ChromeOS":/Linux/.test(ua)?"Linux":"Unknown device";
+  const br=/Edg\//.test(ua)?"Edge":/OPR\//.test(ua)?"Opera":/SamsungBrowser/.test(ua)?"Samsung Internet":/Firefox\/|FxiOS/.test(ua)?"Firefox":/CriOS|Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari":"Browser";
+  return br+" on "+os;
+}
+async function devicesSheet(){
+  const { data, error } = await sb.rpc("bt_my_sessions");
+  openSheet(b=>{
+    b.append(h("h2",{textContent:"Devices"}), h("p",{className:"sub",textContent:"Places where your account is signed in."}));
+    if(error){ b.append(h("p",{className:"err",textContent:"Couldn't load your devices."})); return; }
+    for(const d of data||[]){
+      const row=h("div",{className:"device"}, svg("i-devices"), h("div",{className:"nm"}, h("b",{textContent:deviceName(d.user_agent)}), h("span",{textContent:(d.is_current?"This device · ":"")+"Active "+ago(d.last_active)+" · since "+longDate(d.created_at)})));
+      if(!d.is_current){
+        const out=h("button",{className:"pill",textContent:"Sign out"});
+        out.onclick=async()=>{ out.disabled=true; const { error:e2 } = await sb.functions.invoke("bt-account",{ body:{ action:"revoke_session", session_id:d.id } }); if(e2){ out.disabled=false; toast("Couldn't sign that device out"); return; } row.remove(); toast("Signed out. It may take up to an hour to fully log out."); };
+        row.append(out);
+      }
+      b.append(row);
+    }
+    if((data||[]).length>1){
+      const all=h("button",{className:"btn ghost",textContent:"Sign out all other devices"});
+      all.onclick=async()=>{ all.disabled=true; const { error:e3 } = await sb.auth.signOut({ scope:"others" }); all.disabled=false; if(e3){ toast("Couldn't sign them out"); return; } toast("All other devices signed out"); devicesSheet(); };
+      b.append(all);
+    }
+  });
 }
 async function blockedSheet(){
   await ensureProfiles([...S.blocks]);
@@ -1922,6 +2201,7 @@ function subscribe(){
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_messages"},async ({new:m})=>{
       await ensureProfiles([m.user_id]);
       const mine=m.user_id===S.me.id;
+      if(!mine) markDelivered(m.conversation_id);
       if(m.conversation_id===S.cur){
         const ex=S.msgs.find(x=>x.id===m.id);
         if(ex){ Object.assign(ex,{ created_at:m.created_at, _pending:false, _failed:false }); renderMsgs(); }
@@ -1964,6 +2244,8 @@ function subscribe(){
     .on("postgres_changes",{event:"DELETE",schema:"public",table:"bt_members"},reloadConvs)
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_conversations"},({new:c})=>{ const x=S.convs.find(y=>y.id===c.id); if(x){ Object.assign(x,c); sortConvs(); renderChats(); renderBadges(); if(S.cur===c.id) renderChatHead(); } else reloadConvs(); })
     .on("postgres_changes",{event:"*",schema:"public",table:"bt_friendships"},reloadSocial)
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_calls"},({new:c})=>onCallInsert(c))
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_calls"},({new:c})=>onCallUpdate(c))
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_profiles"},({new:p})=>{
       if(!S.P[p.id]) return;
       const old=S.P[p.id]; S.P[p.id]=p;
@@ -1998,6 +2280,280 @@ function renderAll(){ renderChats(); renderFriends(); renderBadges(); if(S.cur){
 let seenTimer=null;
 function touchSeen(){ if(!S.me || S.offline) return; sb.from("bt_profiles").update({ last_seen_at:new Date().toISOString() }).eq("id",S.me.id).then(()=>{}); }
 
+/* ================= calls (1:1 voice + video) ================= */
+const ICE=[{ urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302","stun:stun.cloudflare.com:3478"] }];
+const C={ call:null, role:null, pc:null, ch:null, local:null, remote:null, video:false, muted:false, camOff:false, remoteCamOff:false, facing:"user", startedAt:null, timers:[], pendingIce:[], tone:null, peer:null, state:null, wantReady:false, readyTimer:null };
+function buildCallUI(){
+  const ui=$("callUI"); if(ui.dataset.built) return; ui.dataset.built="1";
+  ui.append(h("video",{id:"remoteVideo",autoplay:true,playsInline:true,muted:true}), h("video",{id:"localVideo",autoplay:true,playsInline:true,muted:true}), h("audio",{id:"remoteAudio",autoplay:true}), h("div",{className:"call-info",id:"callInfo"}), h("div",{className:"call-btns",id:"callBtns"}));
+}
+function callStatusText(){
+  if(C.state==="incoming") return C.video?"Incoming video call…":"Incoming voice call…";
+  if(C.state==="outgoing") return "Calling…";
+  if(C.state==="connecting") return "Connecting…";
+  if(C.state==="active" && C.startedAt) return durStr((Date.now()-C.startedAt)/1000);
+  return "";
+}
+function tickCall(){ const el=$("callStatus"); if(el) el.textContent=callStatusText(); }
+function showCall(state){
+  buildCallUI(); C.state=state;
+  const ui=$("callUI"); ui.hidden=false;
+  ui.classList.toggle("video", C.video); ui.classList.toggle("live", state==="active");
+  ui.classList.toggle("cam-off", C.camOff); ui.classList.toggle("remote-off", C.remoteCamOff);
+  const live=state==="active" && C.video;
+  const info=$("callInfo"); info.replaceChildren(h("span",{className:state==="active"?"":"pulse"}, avatar(C.peer, live?36:112)), h("div",{}, h("h2",{textContent:nameOf(C.peer)}), h("div",{className:"st",id:"callStatus",textContent:callStatusText()})));
+  const btns=$("callBtns"); btns.replaceChildren();
+  const B=(icon,label,cls,fn)=>{ const b=h("button",{className:cls||"",type:"button","aria-label":label}, svg(icon)); b.onclick=fn; return h("label",{}, b, label); };
+  if(state==="incoming"){
+    btns.append(B("i-hangup","Decline","red",declineCall));
+    if(C.video) btns.append(B("i-video","Video","green",()=>acceptCall(true)));
+    btns.append(B("i-phone",C.video?"Audio only":"Accept","green",()=>acceptCall(false)));
+  } else {
+    btns.append(B(C.muted?"i-mic-off":"i-mic", C.muted?"Unmute":"Mute", C.muted?"on":"", toggleMute));
+    if(C.video && C.local?.getVideoTracks().length){ btns.append(B(C.camOff?"i-video-off":"i-video", C.camOff?"Camera on":"Camera off", C.camOff?"on":"", toggleCam), B("i-flip","Flip","",flipCam)); }
+    btns.append(B("i-hangup","End","red",()=>endCall()));
+  }
+  const lv=$("localVideo"); if(C.local && lv.srcObject!==C.local) lv.srcObject=C.local;
+}
+let toneCtx=null;
+function playTone(kind){
+  stopTone();
+  try{
+    toneCtx ||= new (window.AudioContext||window.webkitAudioContext)(); toneCtx.resume?.();
+    const beep=()=>{
+      const t=toneCtx.currentTime, o=toneCtx.createOscillator(), g=toneCtx.createGain();
+      o.frequency.value = kind==="ring" ? 660 : 425;
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.12,t+0.03); g.gain.setValueAtTime(0.12,t+0.85); g.gain.exponentialRampToValueAtTime(0.0001,t+1);
+      o.connect(g).connect(toneCtx.destination); o.start(t); o.stop(t+1.05);
+      if(kind==="ring"){ const o2=toneCtx.createOscillator(), g2=toneCtx.createGain(); o2.frequency.value=880; g2.gain.setValueAtTime(0.0001,t+0.15); g2.gain.exponentialRampToValueAtTime(0.08,t+0.2); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.9); o2.connect(g2).connect(toneCtx.destination); o2.start(t+0.15); o2.stop(t+0.95); navigator.vibrate?.([300,200,300]); }
+    };
+    beep(); C.tone=setInterval(beep, kind==="ring"?2500:3500);
+  }catch{}
+}
+function stopTone(){ clearInterval(C.tone); C.tone=null; try{ navigator.vibrate?.(0); }catch{} }
+const getMedia = (video) => navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video: video ? { facingMode:C.facing } : false });
+async function startCall(video){
+  const c=curConv(); if(!c || c.kind!=="dm") return;
+  if(C.call){ toast("You're already in a call"); return; }
+  if(R.joined){ toast("Leave the voice room first"); return; }
+  if(!canPost(c)){ toast("You can only call friends"); return; }
+  if(!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection){ toast("Calls aren't supported in this browser"); return; }
+  C.peer=dmOther(c); C.video=video; C.role="caller"; C.camOff=false; C.muted=false; C.remoteCamOff=false;
+  try{ C.local=await getMedia(video); }catch{ toast(video?"Allow camera and microphone to make video calls":"Allow microphone access to make calls"); C.peer=null; return; }
+  const { data, error } = await sb.from("bt_calls").insert({ conversation_id:c.id, caller_id:S.me.id, video, status:"ringing" }).select().single();
+  if(error){ C.local.getTracks().forEach(t=>t.stop()); C.local=null; toast(friendlyErr(error,"Couldn't start the call")); return; }
+  C.call=data; openSignal(data.id); showCall("outgoing"); playTone("ringback");
+  C.timers.push(setTimeout(()=>{ if(C.call?.id===data.id && C.call.status==="ringing") endCall(); }, 45000));
+}
+function openSignal(id){
+  C.ch=sb.channel("btcall:"+id,{ config:{ private:true, broadcast:{ self:false } } });
+  C.ch.on("broadcast",{ event:"sig" },({ payload })=>{ onSignal(payload).catch(()=>{}); });
+  C.ch.subscribe((st)=>{ if(st==="SUBSCRIBED" && C.role==="callee" && C.wantReady) sendReady(); if(st==="CHANNEL_ERROR" && C.call) toast("Couldn't reach the call. Check your connection."); });
+}
+function sendSig(p){ C.ch?.send({ type:"broadcast", event:"sig", payload:{ ...p, from:S.me.id } }); }
+function sendReady(){
+  let n=0; sendSig({ type:"ready" }); clearInterval(C.readyTimer);
+  C.readyTimer=setInterval(()=>{ if(C.pc?.remoteDescription || ++n>10 || !C.call){ clearInterval(C.readyTimer); return; } sendSig({ type:"ready" }); }, 1500);
+}
+function makePC(){
+  const pc=new RTCPeerConnection({ iceServers:ICE });
+  C.local.getTracks().forEach(t=>pc.addTrack(t,C.local));
+  pc.onicecandidate=(e)=>{ if(e.candidate) sendSig({ type:"ice", candidate:e.candidate.toJSON() }); };
+  pc.ontrack=(e)=>{
+    C.remote=e.streams[0]||new MediaStream([e.track]);
+    const rv=$("remoteVideo"), ra=$("remoteAudio"); rv.srcObject=C.remote; ra.srcObject=C.remote;
+    rv.play?.().catch(()=>{}); ra.play?.().catch(()=>{});
+  };
+  pc.onconnectionstatechange=()=>{
+    const st=pc.connectionState;
+    if(st==="connected" && !C.startedAt){ C.startedAt=Date.now(); stopTone(); showCall("active"); C.timers.push(setInterval(tickCall,1000)); }
+    if(st==="failed"){ toast("The call couldn't connect. One of you may be on a strict network."); endCall(); }
+  };
+  return pc;
+}
+function flushIce(){ for(const c of C.pendingIce.splice(0)) C.pc?.addIceCandidate(c).catch(()=>{}); }
+async function onSignal(p){
+  if(!C.call || p.from===S.me.id) return;
+  if(p.type==="ready" && C.role==="caller" && !C.pc){
+    C.pc=makePC(); const offer=await C.pc.createOffer(); await C.pc.setLocalDescription(offer); sendSig({ type:"offer", sdp:offer });
+    if(C.state==="outgoing"){ stopTone(); showCall("connecting"); }
+  } else if(p.type==="offer" && C.role==="callee"){
+    if(!C.pc) C.pc=makePC();
+    await C.pc.setRemoteDescription(p.sdp); const ans=await C.pc.createAnswer(); await C.pc.setLocalDescription(ans);
+    sendSig({ type:"answer", sdp:ans }); flushIce(); clearInterval(C.readyTimer);
+  } else if(p.type==="answer" && C.role==="caller" && C.pc && !C.pc.remoteDescription){
+    await C.pc.setRemoteDescription(p.sdp); flushIce();
+  } else if(p.type==="ice"){
+    if(C.pc?.remoteDescription) C.pc.addIceCandidate(p.candidate).catch(()=>{}); else C.pendingIce.push(p.candidate);
+  } else if(p.type==="cam"){ C.remoteCamOff=!p.on; showCall(C.state); }
+  else if(p.type==="bye"){ cleanupCall(); }
+}
+function onCallInsert(c){
+  if(!S.me || c.caller_id===S.me.id || c.status!=="ringing") return;
+  if(Date.now()-Date.parse(c.created_at)>45000) return;
+  if(C.call){ if(C.call.id!==c.id) sb.from("bt_calls").update({ status:"busy" }).eq("id",c.id).then(()=>{}); return; }
+  if(R.joined){ sb.from("bt_calls").update({ status:"busy" }).eq("id",c.id).then(()=>{}); return; }
+  C.call=c; C.role="callee"; C.video=c.video; C.peer=c.caller_id; C.camOff=false; C.muted=false; C.remoteCamOff=false;
+  ensureProfiles([c.caller_id]).then(()=>{ if(C.call?.id===c.id && !C.state){ showCall("incoming"); playTone("ring"); } });
+  C.timers.push(setTimeout(()=>{ if(C.call?.id===c.id && C.state==="incoming") cleanupCall(); }, 45000));
+}
+function onCallUpdate(c){
+  if(!C.call || C.call.id!==c.id) return;
+  C.call=c;
+  if(["ended","missed","declined","busy"].includes(c.status)){
+    const msg = C.role==="caller" ? ({ declined:"Call declined", busy:"They're on another call", missed:"No answer" }[c.status]) : (c.status==="missed" && C.state==="incoming" ? "Missed call" : "");
+    if(msg && C.state!=="active") toast(msg);
+    cleanupCall(); return;
+  }
+  if(c.status==="active" && C.role==="caller" && C.state==="outgoing"){ stopTone(); showCall("connecting"); }
+}
+async function acceptCall(withVideo){
+  stopTone();
+  if(!navigator.mediaDevices?.getUserMedia){ toast("Calls aren't supported in this browser"); declineCall(); return; }
+  try{ C.local=await getMedia(withVideo); }catch{ toast("Allow microphone access to answer calls"); return; }
+  if(C.video && !withVideo) C.camOff=true;
+  const { error } = await sb.from("bt_calls").update({ status:"active" }).eq("id",C.call.id);
+  if(error){ toast("That call has already ended"); cleanupCall(); return; }
+  C.wantReady=true; openSignal(C.call.id); showCall("connecting");
+}
+async function declineCall(){
+  const id=C.call?.id; cleanupCall();
+  if(id) await sb.from("bt_calls").update({ status:"declined" }).eq("id",id);
+}
+async function endCall(){
+  const call=C.call; if(!call) return cleanupCall();
+  sendSig({ type:"bye" });
+  const status = call.status==="ringing" ? "missed" : "ended";
+  cleanupCall();
+  await sb.from("bt_calls").update({ status }).eq("id",call.id);
+}
+function cleanupCall(){
+  stopTone(); C.timers.forEach(t=>{ clearTimeout(t); clearInterval(t); }); C.timers=[]; clearInterval(C.readyTimer);
+  try{ C.pc?.close(); }catch{}
+  C.local?.getTracks().forEach(t=>t.stop());
+  if(C.ch) sb.removeChannel(C.ch);
+  Object.assign(C,{ call:null, role:null, pc:null, ch:null, local:null, remote:null, startedAt:null, pendingIce:[], state:null, wantReady:false, peer:null });
+  const ui=$("callUI"); ui.hidden=true;
+  for(const id of ["remoteVideo","localVideo","remoteAudio"]){ const el=$(id); if(el) el.srcObject=null; }
+}
+function toggleMute(){ C.muted=!C.muted; C.local?.getAudioTracks().forEach(t=>t.enabled=!C.muted); showCall(C.state); }
+function toggleCam(){
+  const vt=C.local?.getVideoTracks(); if(!vt?.length) return;
+  C.camOff=!C.camOff; vt.forEach(t=>t.enabled=!C.camOff); sendSig({ type:"cam", on:!C.camOff }); showCall(C.state);
+}
+async function flipCam(){
+  if(!C.local?.getVideoTracks().length) return;
+  C.facing = C.facing==="user" ? "environment" : "user";
+  try{
+    const ns=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:C.facing } });
+    const nt=ns.getVideoTracks()[0]; const old=C.local.getVideoTracks()[0];
+    const sender=C.pc?.getSenders().find(s=>s.track?.kind==="video"); if(sender) await sender.replaceTrack(nt);
+    C.local.removeTrack(old); old.stop(); C.local.addTrack(nt); nt.enabled=!C.camOff;
+    $("localVideo").srcObject=null; $("localVideo").srcObject=C.local;
+  }catch{ toast("Couldn't switch camera"); }
+}
+
+/* ================= group voice rooms ================= */
+const R={ cid:null, joined:false, peers:{}, local:null, muted:false, chans:{}, state:{}, viewCid:null, pending:{} };
+function ensureRoomChannel(cid){
+  if(R.chans[cid]) return R.chans[cid];
+  const ch=sb.channel("btroom:"+cid,{ config:{ private:true, presence:{ key:S.me.id }, broadcast:{ self:false } } });
+  ch.on("presence",{ event:"sync" },()=>{ R.state[cid]=ch.presenceState(); onRoomPresence(cid); });
+  ch.on("broadcast",{ event:"sig" },({ payload })=>{ if(R.joined && R.cid===cid) onRoomSig(payload).catch(()=>{}); });
+  ch.subscribe(async(st)=>{ if(st==="SUBSCRIBED" && R.joined && R.cid===cid) await ch.track({ muted:R.muted }); });
+  R.chans[cid]=ch; return ch;
+}
+function dropRoomChannel(cid){ const ch=R.chans[cid]; if(ch){ sb.removeChannel(ch); delete R.chans[cid]; delete R.state[cid]; } }
+function watchRoom(cid){ if(R.viewCid && R.viewCid!==cid && R.viewCid!==R.cid) dropRoomChannel(R.viewCid); R.viewCid=cid; ensureRoomChannel(cid); renderRoomBar(); }
+function unwatchRoom(){ if(R.viewCid && R.viewCid!==R.cid) dropRoomChannel(R.viewCid); R.viewCid=null; }
+const roomIds = (cid) => Object.keys(R.state[cid]||{});
+function onRoomPresence(cid){
+  const ids=roomIds(cid);
+  ensureProfiles(ids).then(()=>{ if(cid===R.viewCid) renderRoomBar(); renderRoomPill(); });
+  if(R.joined && R.cid===cid){
+    const others=ids.filter(id=>id!==S.me.id);
+    for(const id of others) if(!R.peers[id] && S.me.id>id) roomOffer(id).catch(()=>{});
+    for(const id of Object.keys(R.peers)) if(!others.includes(id)) closeRoomPeer(id);
+  }
+}
+function roomPeer(id){
+  const pc=new RTCPeerConnection({ iceServers:ICE });
+  R.local.getTracks().forEach(t=>pc.addTrack(t,R.local));
+  pc.onicecandidate=(e)=>{ if(e.candidate) roomSend({ to:id, type:"ice", candidate:e.candidate.toJSON() }); };
+  pc.ontrack=(e)=>{ let a=document.getElementById("ra-"+id); if(!a){ a=h("audio",{id:"ra-"+id,autoplay:true}); document.body.append(a); } a.srcObject=e.streams[0]||new MediaStream([e.track]); a.play?.().catch(()=>{}); };
+  pc.onconnectionstatechange=()=>{ if(pc.connectionState==="failed") closeRoomPeer(id); };
+  const peer={ pc, ice:R.pending[id]||[] }; delete R.pending[id];
+  R.peers[id]=peer; return peer;
+}
+async function roomOffer(id){ const p=roomPeer(id); const o=await p.pc.createOffer(); await p.pc.setLocalDescription(o); roomSend({ to:id, type:"offer", sdp:o }); }
+function roomSend(p){ R.chans[R.cid]?.send({ type:"broadcast", event:"sig", payload:{ ...p, from:S.me.id } }); }
+function flushRoom(peer){ for(const c of peer.ice.splice(0)) peer.pc.addIceCandidate(c).catch(()=>{}); }
+async function onRoomSig(p){
+  if(p.to!==S.me.id || !R.local) return;
+  let peer=R.peers[p.from];
+  if(p.type==="offer"){
+    if(peer) closeRoomPeer(p.from);
+    peer=roomPeer(p.from); await peer.pc.setRemoteDescription(p.sdp);
+    const a=await peer.pc.createAnswer(); await peer.pc.setLocalDescription(a);
+    roomSend({ to:p.from, type:"answer", sdp:a }); flushRoom(peer);
+  } else if(p.type==="answer" && peer && !peer.pc.remoteDescription){ await peer.pc.setRemoteDescription(p.sdp); flushRoom(peer); }
+  else if(p.type==="ice"){ if(peer?.pc.remoteDescription) peer.pc.addIceCandidate(p.candidate).catch(()=>{}); else if(peer) peer.ice.push(p.candidate); else (R.pending[p.from] ||= []).push(p.candidate); }
+}
+function closeRoomPeer(id){ const p=R.peers[id]; if(p){ try{ p.pc.close(); }catch{} delete R.peers[id]; } document.getElementById("ra-"+id)?.remove(); }
+async function joinRoom(cid){
+  if(C.call){ toast("Finish your call first"); return; }
+  if(R.joined){ if(R.cid===cid) return; await leaveRoom(); }
+  if(!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection){ toast("Voice rooms aren't supported in this browser"); return; }
+  try{ R.local=await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } }); }
+  catch{ toast("Allow microphone access to join voice rooms"); return; }
+  R.cid=cid; R.joined=true; R.muted=false;
+  const ch=ensureRoomChannel(cid);
+  try{ await ch.track({ muted:false }); }catch{}
+  renderRoomBar(); renderRoomPill(); if(S.cur===cid) renderChatHead();
+  toast("You joined the voice room");
+}
+async function leaveRoom(){
+  if(!R.joined) return;
+  const cid=R.cid;
+  try{ await R.chans[cid]?.untrack(); }catch{}
+  Object.keys(R.peers).forEach(closeRoomPeer);
+  R.local?.getTracks().forEach(t=>t.stop());
+  R.joined=false; R.cid=null; R.local=null; R.pending={};
+  if(cid!==R.viewCid) dropRoomChannel(cid);
+  renderRoomBar(); renderRoomPill(); if(S.cur) renderChatHead();
+}
+async function toggleRoomMute(){
+  R.muted=!R.muted; R.local?.getAudioTracks().forEach(t=>t.enabled=!R.muted);
+  try{ await R.chans[R.cid]?.track({ muted:R.muted }); }catch{}
+  renderRoomPill();
+}
+function roomStack(cid, max=5){
+  const st=h("div",{className:"stack"});
+  roomIds(cid).slice(0,max).forEach(id=>st.append(avatar(id,26)));
+  return st;
+}
+function renderRoomBar(){
+  const bar=$("roomBar"); const cid=R.viewCid;
+  if(!cid || S.cur!==cid){ bar.hidden=true; return; }
+  const ids=roomIds(cid); const inRoom=R.joined && R.cid===cid;
+  if(!ids.length && !inRoom){ bar.hidden=true; return; }
+  const btn=h("button",{className:"pill "+(inRoom?"danger":"primary"),textContent:inRoom?"Leave":"Join"});
+  btn.onclick=()=> inRoom ? leaveRoom() : joinRoom(cid);
+  const names=ids.slice(0,3).map(id=>id===S.me.id?"You":firstName(id)).join(", ")+(ids.length>3?` +${ids.length-3}`:"");
+  bar.replaceChildren(svg("i-headset"), h("div",{className:"t",textContent:`Voice room · ${names}`}), roomStack(cid), btn);
+  bar.hidden=false;
+}
+function renderRoomPill(){
+  const pill=$("roomPill");
+  if(!R.joined){ pill.hidden=true; return; }
+  const c=S.convs.find(x=>x.id===R.cid); const n=roomIds(R.cid).length||1;
+  const t=h("span",{className:"t",textContent:`Voice room · ${c?.name||"Group"} · ${n} in`}); t.onclick=()=>{ setTab("chats"); openConv(R.cid); };
+  const mute=h("button",{type:"button","aria-label":R.muted?"Unmute":"Mute"}, svg(R.muted?"i-mic-off":"i-mic")); mute.onclick=toggleRoomMute;
+  const lv=h("button",{type:"button",className:"red","aria-label":"Leave voice room"}, svg("i-hangup")); lv.onclick=leaveRoom;
+  pill.replaceChildren(svg("i-headset"), t, mute, lv); pill.hidden=false;
+}
+window.addEventListener("pagehide",()=>{ if(C.call) endCall(); if(R.joined) leaveRoom(); });
+
 /* ================= offline cache ================= */
 let saveTimer=null;
 function scheduleSave(){ clearTimeout(saveTimer); saveTimer=setTimeout(saveCache,1500); }
@@ -2030,20 +2586,22 @@ window.addEventListener("offline",()=>setOffline(true));
 /* ================= deep links ================= */
 function readDeepLink(){
   const q=new URLSearchParams(location.search);
-  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab") };
-  if(d.join||d.add||d.c||d.tab){ S.deep=d; history.replaceState(null,"",BASE); }
+  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab"), dm:q.get("dm"), call:q.get("call") };
+  if(d.join||d.add||d.c||d.tab||d.dm||d.call){ S.deep=d; history.replaceState(null,"",BASE); }
 }
 async function handleDeepLink(){
   const d=S.deep; S.deep=null; if(!d) return;
   if(d.tab==="friends") setTab("friends");
   if(d.c && S.convs.some(c=>c.id===d.c)) openConv(d.c);
   if(d.join && /^[a-z0-9]{6,32}$/i.test(d.join)) joinPreview(d.join.toLowerCase());
+  if(d.dm && /^[0-9a-f-]{36}$/.test(d.dm) && isFriend(d.dm)) openDM(d.dm);
+  if(d.call && /^[0-9a-f-]{36}$/.test(d.call)){ const { data } = await sb.from("bt_calls").select("*").eq("id",d.call).maybeSingle(); if(data) onCallInsert(data); }
   if(d.add && USER_RE.test(d.add.toLowerCase())){
     const { data } = await sb.from("bt_profiles").select("*").eq("username",d.add.toLowerCase()).maybeSingle();
     if(data){ S.P[data.id]=data; openProfile(data.id); } else toast("No one has the username @"+d.add);
   }
 }
-navigator.serviceWorker?.addEventListener("message",(e)=>{ if(e.data?.type==="open" && e.data.url){ const u=new URL(e.data.url, BASE); const c=u.searchParams.get("c"); if(c && S.convs.some(x=>x.id===c)){ setTab("chats"); openConv(c); } else if(u.searchParams.get("tab")==="friends") setTab("friends"); } });
+navigator.serviceWorker?.addEventListener("message",(e)=>{ if(e.data?.type==="open" && e.data.url){ const u=new URL(e.data.url, BASE); const c=u.searchParams.get("c"); const call=u.searchParams.get("call"); if(call) sb.from("bt_calls").select("*").eq("id",call).maybeSingle().then(({data})=>{ if(data) onCallInsert(data); }); const dm=u.searchParams.get("dm"); if(dm && isFriend(dm)) openDM(dm); if(c && S.convs.some(x=>x.id===c)){ setTab("chats"); openConv(c); } else if(u.searchParams.get("tab")==="friends") setTab("friends"); } });
 
 /* ================= boot ================= */
 async function enter(){
@@ -2077,6 +2635,7 @@ async function enter(){
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 function leave(){
+  try{ if(C.call) cleanupCall(); if(R.joined) leaveRoom(); Object.keys(R.chans).forEach(dropRoomChannel); }catch{}
   S.rt && sb.removeChannel(S.rt); S.pres && sb.removeChannel(S.pres); clearInterval(seenTimer);
   Object.assign(S,{ me:null, profile:null, P:{}, nick:{}, blocks:new Set(), friendships:[], convs:[], unread:{}, mentions:{}, cur:null, msgs:[], peers:{}, rt:null, pres:null, subscribedOnce:false, outbox:[], drafts:{} });
   closeSheet(); document.body.dataset.view="home";

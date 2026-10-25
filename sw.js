@@ -1,9 +1,10 @@
-const CACHE = "bt-shell-bc6526a";
+const CACHE = "bt-shell-2954480";
 const SHELL = [
-  "./", "./index.html", "./app.js?v=bc6526a", "./app.css?v=bc6526a", "./manifest.webmanifest",
+  "./", "./index.html", "./app.js?v=2954480", "./app.css?v=2954480", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+  "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
 ];
 
 self.addEventListener("install", (e) => {
