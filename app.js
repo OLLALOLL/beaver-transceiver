@@ -1910,7 +1910,9 @@ $("avatarBtn").onclick=()=>{
     b.append(menu);
   });
 };
-$("bannerBtn").onclick=()=>{
+$("meBanner").addEventListener("click",(e)=>{ if(e.target===$("meBanner")) $("bannerBtn").click(); });
+$("bannerBtn").onclick=(e)=>{
+  if(e) e.stopPropagation();
   openSheet(b=>{
     b.append(h("h2",{textContent:"Profile banner"}), h("p",{className:"sub",textContent:"A wide image shown at the top of your profile."}));
     const menu=h("div",{className:"menu"});
