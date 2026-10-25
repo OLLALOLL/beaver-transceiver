@@ -1,6 +1,6 @@
-const CACHE = "bt-shell-v4";
+const CACHE = "bt-shell-bc6526a";
 const SHELL = [
-  "./", "./index.html", "./app.js", "./app.css", "./manifest.webmanifest",
+  "./", "./index.html", "./app.js?v=bc6526a", "./app.css?v=bc6526a", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
@@ -23,7 +23,7 @@ self.addEventListener("fetch", (e) => {
   if (!isShell && !isLib) return;
   if (isShell && (req.mode === "navigate" || /\.(js|css|html|webmanifest)$/.test(url.pathname) || url.pathname.endsWith("/"))) {
     e.respondWith(
-      fetch(req).then((res) => { if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone())); return res; })
+      fetch(req, { cache: "no-cache" }).then((res) => { if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone())); return res; })
         .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match("./index.html")))
     );
     return;
