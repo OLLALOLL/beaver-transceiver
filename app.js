@@ -128,7 +128,7 @@ function friendlyErr(e, fallback){
   return fallback;
 }
 async function copyText(t, label){
-  try{ await navigator.clipboard.writeText(t); toast((label||"Copied")+" ✓"); }
+  try{ await navigator.clipboard.writeText(t); toast(label||"Copied"); }
   catch{ toast("Couldn't copy — long-press to select it instead"); }
 }
 
@@ -161,12 +161,66 @@ function gestures(el, { onTap, onLong, onSwipe, swipeTarget }){
 
 /* ================= sheets ================= */
 function openSheet(build){ const b=$("sheetBody"); b.replaceChildren(); build(b); $("backdrop").classList.add("show"); $("sheet").classList.add("show"); $("sheet").scrollTop=0; }
-function closeSheet(){ $("backdrop").classList.remove("show"); $("sheet").classList.remove("show"); }
+function closeSheet(){ const sh=$("sheet"); sh.style.transform=""; sh.style.transition=""; $("backdrop").style.opacity=""; $("backdrop").classList.remove("show"); sh.classList.remove("show"); }
 $("backdrop").onclick=closeSheet;
+
+/* drag-down-to-dismiss for sheets and the photo viewer */
+function dragToClose(el, { onClose, canStart, fade }){
+  let startY=0, startT=0, dy=0, dragging=false, tracking=false, fromHandle=false;
+  const begin=(y, target)=>{ startY=y; startT=Date.now(); dy=0; dragging=false; fromHandle=!!target.closest?.(".grab,.drag-zone"); tracking=canStart(fromHandle); };
+  const move=(y, e)=>{
+    if(!tracking) return;
+    const d=y-startY;
+    if(!dragging){
+      if(d<6) { if(d<-6) tracking=false; return; }
+      if(!fromHandle && el.scrollTop>0){ tracking=false; return; }
+      dragging=true; el.style.transition="none";
+    }
+    dy=Math.max(0,d);
+    el.style.transform=`translateY(${dy}px)`;
+    if(fade) fade(Math.max(0,1-dy/(el.offsetHeight||400)));
+    if(e?.cancelable) e.preventDefault();
+  };
+  const end=()=>{
+    if(!tracking){ return; } tracking=false;
+    if(!dragging) return; dragging=false;
+    const v=dy/Math.max(1,Date.now()-startT);
+    el.style.transition="";
+    if(dy>110 || (v>0.55 && dy>30)){ onClose(); }
+    else { el.style.transform=""; if(fade) fade(1); }
+  };
+  el.addEventListener("touchstart",(e)=>begin(e.touches[0].clientY, e.target),{ passive:true });
+  el.addEventListener("touchmove",(e)=>move(e.touches[0].clientY, e),{ passive:false });
+  el.addEventListener("touchend",end); el.addEventListener("touchcancel",end);
+  el.addEventListener("pointerdown",(e)=>{ if(e.pointerType!=="mouse" || !e.target.closest(".grab,.drag-zone")) return; begin(e.clientY, e.target); const mv=(ev)=>move(ev.clientY, ev); const up=()=>{ end(); window.removeEventListener("pointermove",mv); window.removeEventListener("pointerup",up); }; window.addEventListener("pointermove",mv); window.addEventListener("pointerup",up); });
+}
+dragToClose($("sheet"),{
+  canStart:()=>$("sheet").classList.contains("show"),
+  onClose:closeSheet,
+  fade:(o)=>{ $("backdrop").style.opacity=String(o); }
+});
+dragToClose($("viewer"),{
+  canStart:()=>!$("viewer").hidden,
+  onClose:()=>{ const v=$("viewer"); v.style.transform=""; v.style.opacity=""; v.hidden=true; $("viewerImg").src=""; },
+  fade:(o)=>{ $("viewer").style.opacity=String(Math.max(.3,o)); }
+});
 function armed(btn, label, action){
   btn.onclick=()=>{ const old=btn.textContent; btn.textContent=label; btn.classList.add("danger"); btn.onclick=async()=>{ btn.disabled=true; await action(); btn.disabled=false; btn.textContent=old; btn.classList.remove("danger"); }; };
 }
-function menuBtn(label, onClick, opts={}){ const b=h("button",{className:opts.danger?"danger":""}, label, opts.right ? h("span",{className:"r",textContent:opts.right}) : null); b.onclick=onClick; return b; }
+const ICONS={"📌":"i-pin","🔔":"i-bell","🗄️":"i-archive","📤":"i-unarchive","✓":"i-check","●":"i-unread","👥":"i-group","🔗":"i-link","↩️":"i-reply","📋":"i-copy","✏️":"i-edit","👤":"i-me","🚩":"i-flag","🗑️":"i-trash","🏷️":"i-tag","⛔":"i-block","🔨":"i-ban","➕":"i-user-plus","⭐":"i-star","⬇️":"i-star-off","🚪":"i-leave","🔍":"i-search","📱":"i-qr","🎨":"i-palette","🔐":"i-lock","🛡️":"i-shield","📷":"i-image","🎤":"i-mic","📊":"i-poll","🖼️":"i-image"};
+function menuBtn(label, onClick, opts={}){
+  const m=label.match(/^(\S+)\s+([\s\S]*)$/); const icon=m && ICONS[m[1]];
+  const b=h("button",{className:opts.danger?"danger":""}, icon ? svg(icon) : null, h("span",{className:"lbl-t",textContent: icon ? m[2] : label}), opts.right ? h("span",{className:"r",textContent:opts.right}) : null);
+  b.onclick=onClick; return b;
+}
+const stripEmoji = (t) => String(t||"").replace(/^(?:\p{Extended_Pictographic}|\ufe0f|\u200d)+\s*/u,"");
+function previewNode(text){
+  const t=stripEmoji(text);
+  if(text==="") return [svg("i-image"), "Photo"].map(x=>{ if(typeof x!=="string") x.setAttribute("class","inline-ico"); return x; });
+  if(/^Voice message$/.test(t)){ const i=svg("i-mic"); i.setAttribute("class","inline-ico"); return [i, "Voice message"]; }
+  if(/^Poll: /.test(t) || /^📊/.test(text)){ const i=svg("i-poll"); i.setAttribute("class","inline-ico"); return [i, t.replace(/^Poll: /,"")]; }
+  return [t];
+}
 
 /* ================= screens ================= */
 function show(which){ for(const id of ["bootScreen","authScreen","mailScreen","setupScreen","bannedScreen","app"]) $(id).hidden = id!==which; }
@@ -186,7 +240,7 @@ function watchUsername(input, note, getCurrent){
       const { data, error } = await sb.rpc("bt_username_available",{ name:v });
       if(my!==seq) return;
       if(error){ note.textContent=""; return; }
-      note.textContent = data ? "✓ Available" : "✗ Taken"; note.className = data ? "good" : "bad";
+      note.textContent = data ? "Available" : "Taken"; note.className = data ? "good" : "bad";
     }, 350);
   });
 }
@@ -222,7 +276,7 @@ $("authForm").addEventListener("submit", async (e)=>{
       if(error){ if(/email not confirmed/i.test(error.message)){ showMail(email); return; } throw error; }
     } else {
       const user=$("suUser").value.trim();
-      if(!(await usernameFree(user))){ err.textContent="That username is taken. Pick another."; $("suUserNote").textContent="✗ Taken"; $("suUserNote").className="bad"; return; }
+      if(!(await usernameFree(user))){ err.textContent="That username is taken. Pick another."; $("suUserNote").textContent="Taken"; $("suUserNote").className="bad"; return; }
       const { data, error } = await sb.auth.signUp({ email, password, options:{ emailRedirectTo:BASE, data:{ bt_username:user, bt_display_name:$("suDisplay").value.trim() } } });
       if(error) throw error;
       if(data.user && Array.isArray(data.user.identities) && data.user.identities.length===0){ err.textContent="That email already has an account. Sign in instead."; return; }
@@ -421,13 +475,13 @@ let convTimer=null; const reloadConvs=()=>{ clearTimeout(convTimer); convTimer=s
 function previewOf(c){
   const draft=S.drafts[c.id];
   if(draft && S.cur!==c.id) return [h("span",{className:"draft",textContent:"Draft: "}), draft];
-  let p=c.last_message_preview;
-  if(p==null) return c.kind==="group" ? "Group created" : "Say hi 👋";
-  if(p==="") p="📷 Photo";
-  if(c.last_message_user && S.blocks.has(c.last_message_user)) p="Message from someone you blocked";
-  if(c.last_message_user===S.me.id) return "You: "+p;
-  if(c.kind==="group" && c.last_message_user) return firstName(c.last_message_user)+": "+p;
-  return p;
+  const p=c.last_message_preview;
+  if(p==null) return c.kind==="group" ? "Group created" : "Say hi";
+  if(c.last_message_user && S.blocks.has(c.last_message_user)) return "Message from someone you blocked";
+  const body=previewNode(p);
+  if(c.last_message_user===S.me.id) return ["You: ", ...body];
+  if(c.kind==="group" && c.last_message_user) return [firstName(c.last_message_user)+": ", ...body];
+  return body;
 }
 function renderChats(){
   const box=$("chatList"); if(!box || !S.me) return; box.replaceChildren();
@@ -477,7 +531,7 @@ function chatRow(c){
   if(count) bottom.append(h("span",{className:"count"+(muted?" muted":""),textContent: count>99?"99+":count}));
   else if(me?.marked_unread) bottom.append(h("span",{className:"count"+(muted?" muted":""),textContent:" "}));
   r.append(convAvatar(c,52), h("div",{className:"meta"}, h("div",{className:"top"},h("div",{className:"name",textContent:convName(c)}),h("div",{className:"time",textContent:listTime(c.last_message_at||c.created_at)})), bottom));
-  const wrap=h("div",{className:"row-swipe"}, h("div",{className:"under",textContent: unread ? "✓ Mark as read" : "● Mark as unread"}), r);
+  const wrap=h("div",{className:"row-swipe"}, h("div",{className:"under"}, svg(unread?"i-check":"i-unread"), unread ? "Mark as read" : "Mark as unread"), r);
   gestures(r,{ onTap:()=>openConv(c.id), onLong:()=>chatRowMenu(c), onSwipe:()=>toggleRead(c) });
   r.onkeydown=(e)=>{ if(e.key==="Enter") openConv(c.id); };
   return wrap;
@@ -793,9 +847,9 @@ function paint(){
   });
 }
 function snippet(r){
-  if(r.kind==="poll") return r.content;
-  if(r.media_kind==="image") return "📷 "+(r.content||"Photo");
-  if(r.media_kind==="audio") return "🎤 Voice message";
+  if(r.kind==="poll") return "Poll: "+stripEmoji(r.content).replace(/^Poll: /,"");
+  if(r.media_kind==="image") return r.content ? "Photo: "+r.content : "Photo";
+  if(r.media_kind==="audio") return "Voice message";
   return (r.content||"").replace(/\s+/g," ").slice(0,120);
 }
 
@@ -869,11 +923,11 @@ function linkCard(url){
 /* polls */
 function pollEl(m){
   const p=S.polls[m.id];
-  if(!p){ sb.from("bt_polls").select("*").eq("message_id",m.id).maybeSingle().then(({data})=>{ if(data){ S.polls[m.id]=data; renderMsgs(); } }); return h("div",{className:"poll"},h("div",{className:"q",textContent:m.content})); }
+  if(!p){ sb.from("bt_polls").select("*").eq("message_id",m.id).maybeSingle().then(({data})=>{ if(data){ S.polls[m.id]=data; renderMsgs(); } }); return h("div",{className:"poll"},h("div",{className:"q"},svg("i-poll"),stripEmoji(m.content).replace(/^Poll: /,""))); }
   const votes=S.votes[m.id]||[];
   const voters=new Set(votes.map(v=>v.user_id));
   const mine=new Set(votes.filter(v=>v.user_id===S.me.id).map(v=>v.option_idx));
-  const box=h("div",{className:"poll"}, h("div",{className:"q",textContent:"📊 "+p.question}));
+  const box=h("div",{className:"poll"}, h("div",{className:"q"}, svg("i-poll"), p.question));
   p.options.forEach((opt,i)=>{
     const n=votes.filter(v=>v.option_idx===i).length, pct=voters.size?Math.round(n/voters.size*100):0;
     const bar=h("i"); bar.style.width=(mine.size?pct:0)+"%";
@@ -949,7 +1003,7 @@ function msgSheet(m){
     if(!mine && m.kind!=="system") menu.append(menuBtn("🚩  Report message",()=>reportSheet({ message:m }),{ danger:true }));
     if(mine && (m.kind==="text" || m.kind==="poll")){
       const del=menuBtn("🗑️  Delete for everyone",null,{ danger:true });
-      del.onclick=()=>{ del.firstChild.textContent="Tap again to delete"; del.onclick=async()=>{
+      del.onclick=()=>{ del.querySelector(".lbl-t").textContent="Tap again to delete"; del.onclick=async()=>{
         closeSheet();
         const { error } = await sb.from("bt_messages").delete().eq("id",m.id);
         if(error) toast("Couldn't delete that message");
@@ -1170,7 +1224,7 @@ function retry(m){ m._failed=false; m._pending=true; renderMsgs(); send(m); }
 function bumpConv(m){
   const c=S.convs.find(x=>x.id===m.conversation_id); if(!c) return reloadConvs();
   c.last_message_at=m.created_at;
-  c.last_message_preview = m.media_kind==="audio" ? "🎤 Voice message" : (m.content||"").replace(/\s+/g," ").slice(0,90);
+  c.last_message_preview = m.media_kind==="audio" ? "Voice message" : (m.content||"").replace(/\s+/g," ").slice(0,90);
   c.last_message_user = m.kind==="system" ? null : m.user_id;
   sortConvs(); renderChats(); renderBadges();
 }
@@ -1281,7 +1335,7 @@ async function finishRecording(){
   const blob=new Blob(recChunks,{ type:mime });
   const ext=mime.includes("mp4")?"m4a":mime.includes("ogg")?"ogg":"webm";
   const id=uuid();
-  const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"🎤 Voice message", reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"audio", media_meta:{ d:Math.round(secs) }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:URL.createObjectURL(blob) };
+  const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"Voice message", reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"audio", media_meta:{ d:Math.round(secs) }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:URL.createObjectURL(blob) };
   setReply(null);
   S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight;
   const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, blob, { contentType:mime, cacheControl:"31536000" });
@@ -1457,7 +1511,7 @@ function memberSheet(c, m){
       m.role=role; closeSheet(); toast(role==="admin"?nameOf(m.user_id)+" is now an admin":nameOf(m.user_id)+" is no longer an admin"); reloadConvs();
     }));
     const rm=menuBtn("🚪  Remove from group",null,{ danger:true });
-    rm.onclick=()=>{ rm.firstChild.textContent="Tap again to remove "+firstName(m.user_id); rm.onclick=async()=>{
+    rm.onclick=()=>{ rm.querySelector(".lbl-t").textContent="Tap again to remove "+firstName(m.user_id); rm.onclick=async()=>{
       const { error } = await sb.from("bt_members").delete().match({ conversation_id:c.id, user_id:m.user_id });
       if(error){ toast(friendlyErr(error,"Couldn't remove them")); return; }
       closeSheet(); toast("Removed "+nameOf(m.user_id)); reloadConvs();

@@ -1,4 +1,4 @@
-const CACHE = "bt-shell-v3";
+const CACHE = "bt-shell-v4";
 const SHELL = [
   "./", "./index.html", "./app.js", "./app.css", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",

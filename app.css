@@ -257,6 +257,16 @@ p.sub{margin:0 0 14px;color:var(--muted);font-size:.9rem;line-height:1.45}
 .menu button{display:flex;align-items:center;gap:12px;padding:0 16px;min-height:50px;text-align:left;font-weight:600;background:var(--panel)}
 .menu button:active{background:var(--line)}
 .menu button.danger{color:var(--danger)}
+.menu button > svg{width:20px;height:20px;flex:none;color:var(--muted)}
+.menu button.danger > svg{color:var(--danger)}
+.inline-ico{width:15px;height:15px;vertical-align:-3px;margin-right:3px;flex:none}
+.row .sub .inline-ico{color:var(--muted)}
+.row-swipe .under svg{width:18px;height:18px;margin-right:8px}
+.poll .q svg{width:16px;height:16px;vertical-align:-3px;margin-right:4px}
+.grab{position:relative;cursor:grab}
+.grab::after{content:"";position:absolute;inset:-14px -80px}
+.sheet{overscroll-behavior:contain}
+.viewer{transition:opacity .2s}
 .menu button .r{margin-left:auto;color:var(--muted);font-weight:500;font-size:.9rem}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;background:var(--panel);border-radius:12px;padding:4px}
 .seg button{height:40px;border-radius:9px;font-weight:700;color:var(--muted);font-size:.88rem}
@@ -351,4 +361,6 @@ textarea.input{height:auto;min-height:80px;padding:12px 14px;resize:vertical;lin
 .tabs button{height:42px;border-radius:9px;font-weight:700;color:var(--muted)}
 .tabs button[aria-selected="true"]{background:var(--surface);color:var(--fg)}
 .loading{display:grid;place-items:center;height:100%;color:var(--muted)}
-.big-emoji{font-size:3rem}
+.big-icon{width:72px;height:72px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin:0 auto 10px}
+.big-icon svg{width:36px;height:36px}
+.big-icon.danger{background:color-mix(in srgb,var(--danger) 16%,var(--surface));color:var(--danger)}
