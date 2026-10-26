@@ -165,7 +165,8 @@ function gestures(el, { onTap, onLong, onSwipe, swipeTarget }){
 
 /* ================= sheets ================= */
 function openSheet(build){ const b=$("sheetBody"); b.replaceChildren(); build(b); $("backdrop").classList.add("show"); $("sheet").classList.add("show"); $("sheet").scrollTop=0; }
-function closeSheet(){ const sh=$("sheet"); sh.style.transform=""; sh.style.transition=""; $("backdrop").style.opacity=""; $("backdrop").classList.remove("show"); sh.classList.remove("show"); }
+function closeSheet(){ todoOpen=false; closeSheetInner(); }
+function closeSheetInner(){ const sh=$("sheet"); sh.style.transform=""; sh.style.transition=""; $("backdrop").style.opacity=""; $("backdrop").classList.remove("show"); sh.classList.remove("show"); }
 $("backdrop").onclick=closeSheet;
 
 /* drag-down-to-dismiss for sheets and the photo viewer */
@@ -211,7 +212,7 @@ dragToClose($("viewer"),{
 function armed(btn, label, action){
   btn.onclick=()=>{ const old=btn.textContent; btn.textContent=label; btn.classList.add("danger"); btn.onclick=async()=>{ btn.disabled=true; await action(); btn.disabled=false; btn.textContent=old; btn.classList.remove("danger"); }; };
 }
-const ICONS={"📌":"i-pin","🔔":"i-bell","🗄️":"i-archive","📤":"i-unarchive","✓":"i-check","●":"i-unread","👥":"i-group","🔗":"i-link","↩️":"i-reply","📋":"i-copy","✏️":"i-edit","👤":"i-me","🚩":"i-flag","🗑️":"i-trash","🏷️":"i-tag","⛔":"i-block","🔨":"i-ban","➕":"i-user-plus","⭐":"i-star","⬇️":"i-star-off","🚪":"i-leave","🔍":"i-search","📱":"i-qr","🎨":"i-palette","🔐":"i-lock","🛡️":"i-shield","📷":"i-image","🎤":"i-mic","📊":"i-poll","🖼️":"i-image","📎":"i-file","🎧":"i-headset","💻":"i-devices","🔒":"i-users-lock","🎂":"i-cake","🎮":"i-game","📞":"i-phone","🎥":"i-video"};
+const ICONS={"✅":"i-check2","🔐":"i-lock","📌":"i-pin","🔔":"i-bell","🗄️":"i-archive","📤":"i-unarchive","✓":"i-check","●":"i-unread","👥":"i-group","🔗":"i-link","↩️":"i-reply","📋":"i-copy","✏️":"i-edit","👤":"i-me","🚩":"i-flag","🗑️":"i-trash","🏷️":"i-tag","⛔":"i-block","🔨":"i-ban","➕":"i-user-plus","⭐":"i-star","⬇️":"i-star-off","🚪":"i-leave","🔍":"i-search","📱":"i-qr","🎨":"i-palette","🔐":"i-lock","🛡️":"i-shield","📷":"i-image","🎤":"i-mic","📊":"i-poll","🖼️":"i-image","📎":"i-file","🎧":"i-headset","💻":"i-devices","🔒":"i-users-lock","🎂":"i-cake","🎮":"i-game","📞":"i-phone","🎥":"i-video"};
 function menuBtn(label, onClick, opts={}){
   const m=label.match(/^(\S+)\s+([\s\S]*)$/); const icon=m && ICONS[m[1]];
   const b=h("button",{className:opts.danger?"danger":""}, icon ? svg(icon) : null, h("span",{className:"lbl-t",textContent: icon ? m[2] : label}), opts.right ? h("span",{className:"r",textContent:opts.right}) : null);
@@ -222,6 +223,8 @@ function previewNode(text){
   const t=stripEmoji(text);
   if(text==="") return [svg("i-image"), "Photo"].map(x=>{ if(typeof x!=="string") x.setAttribute("class","inline-ico"); return x; });
   if(/^File: /.test(t)){ const i=svg("i-file"); i.setAttribute("class","inline-ico"); return [i, t.slice(6)]; }
+  if(t==="Encrypted message"){ const i=svg("i-lock"); i.setAttribute("class","inline-ico"); return [i, "Encrypted message"]; }
+  if(/^Addon: /.test(t)){ const i=svg("i-game"); i.setAttribute("class","inline-ico"); return [i, t.slice(7)]; }
   if(/^Voice message$/.test(t)){ const i=svg("i-mic"); i.setAttribute("class","inline-ico"); return [i, "Voice message"]; }
   if(/^Poll: /.test(t) || /^📊/.test(text)){ const i=svg("i-poll"); i.setAttribute("class","inline-ico"); return [i, t.replace(/^Poll: /,"")]; }
   return [t];
@@ -280,6 +283,7 @@ $("authForm").addEventListener("submit", async (e)=>{
   if(mode==="up" && !isEmail){ err.textContent="Enter a valid email address."; return; }
   if(password.length<6){ err.textContent="Passwords need at least 6 characters."; return; }
   const btn=$("authBtn"); btn.disabled=true;
+  S.pendingPw=password;
   try{
     if(mode==="in" && !isEmail){
       const r = await loginFn({ action:"login", username:email, password });
@@ -344,7 +348,7 @@ function newPasswordSheet(){
       if(inp.value.length<6){ err.textContent="Passwords need at least 6 characters."; return; }
       go.disabled=true; const { error } = await sb.auth.updateUser({ password:inp.value }); go.disabled=false;
       if(error){ err.textContent=friendlyErr(error,"Couldn't save the password. Try again."); return; }
-      closeSheet(); toast("Password updated");
+      e2eRewrap(inp.value); closeSheet(); toast("Password updated");
     };
     b.append(h("h2",{textContent:"Choose a new password"}), h("label",{className:"lbl",htmlFor:"newPass",textContent:"New password"}), inp, err, go);
   });
@@ -378,13 +382,24 @@ const isFriend = (uid) => friendRow(uid)?.status==="accepted";
 const friendIds = () => S.friendships.filter(f=>f.status==="accepted").map(otherOf);
 const isOnline = (uid) => !!S.peers[uid] && uid!==S.me?.id;
 const ACT_TYPES=[["playing","Playing","i-game"],["listening","Listening to","i-headset"],["watching","Watching","i-video"],["building","Building","i-edit"],["working","Working on","i-devices"]];
+function xboxNow(uid){
+  const x=S.P[uid]?.xbox; if(!x || !x.show || !x.on || !x.game) return null;
+  if(x.at && Date.now()-Date.parse(x.at) > 20*60*1000) return null; // stale
+  return x;
+}
 function activityOf(uid){
+  const x=xboxNow(uid);
+  if(x) return { label:"Playing "+x.game, icon:"i-game", xbox:true, detail:[x.detail, x.device?"on "+x.device:""].filter(Boolean).join(" · ") };
   const a=S.P[uid]?.activity; if(!a || !a.text) return null;
   if(a.until && Date.parse(a.until)<Date.now()) return null;
   const t=ACT_TYPES.find(x=>x[0]===a.type)||ACT_TYPES[0];
   return { label:`${t[1]} ${a.text}`, icon:t[2] };
 }
-function activityLine(uid){ const a=activityOf(uid); if(!a) return null; return h("div",{className:"activity"}, svg(a.icon), a.label); }
+function activityLine(uid){
+  const a=activityOf(uid); if(!a) return null;
+  const el=h("div",{className:"activity"+(a.xbox?" xbox":"")}, svg(a.icon), h("span",{}, h("b",{textContent:a.label}), a.detail ? h("small",{textContent:a.detail}) : null));
+  return el;
+}
 function isBirthdayToday(uid){ const b=S.bdays[uid]; if(!b) return false; const d=new Date(b.birthday+"T12:00:00"), n=new Date(); return d.getMonth()===n.getMonth() && d.getDate()===n.getDate(); }
 function presenceText(uid){
   if(isOnline(uid)) return "Online";
@@ -523,7 +538,8 @@ let convTimer=null; const reloadConvs=()=>{ clearTimeout(convTimer); convTimer=s
 function previewOf(c){
   const draft=S.drafts[c.id];
   if(draft && S.cur!==c.id) return [h("span",{className:"draft",textContent:"Draft: "}), draft];
-  const p=c.last_message_preview;
+  let p=c.last_message_preview;
+  if(p===ENC_TEXT){ const pp=S.plainPrev?.[c.id]; if(pp && Date.parse(pp.at)===Date.parse(c.last_message_at)) p=pp.p; }
   if(p==null) return c.kind==="group" ? "Group created" : "Say hi";
   if(c.last_message_user && S.blocks.has(c.last_message_user)) return "Message from someone you blocked";
   const body=previewNode(p);
@@ -560,6 +576,10 @@ function renderChats(){
     const b=h("button",{className:"btn",textContent: friendIds().length ? "Start a chat" : "Find friends"});
     b.onclick=()=> friendIds().length ? newChatSheet() : setTab("friends");
     e.append(b); box.append(e); return;
+  }
+  if(E.state==="locked"){
+    const lb=h("button",{className:"bday-banner e2e-banner"}, svg("i-lock"), h("span",{textContent:"Enter your password to unlock your encrypted chats on this device."}));
+    lb.onclick=unlockSheet; box.append(lb);
   }
   const bdays=friendIds().filter(isBirthdayToday);
   if(bdays.length){
@@ -731,7 +751,13 @@ function renderChatHead(){
   let subText, on=false;
   if(c.kind==="dm"){ const o=dmOther(c); on=isOnline(o); subText = S.P[o]?.status && !on ? S.P[o].status : presenceText(o); }
   else { const n=c.bt_members.length; const online=c.bt_members.filter(m=>m.user_id!==S.me.id && isOnline(m.user_id)).length; subText = n+" members"+(online?` · ${online} online`:""); }
-  head.append(convAvatar(c,40), h("div",{className:"t"}, h("b",{textContent:convName(c)}), h("span",{textContent:subText,className:on?"on":""})));
+  const title=h("b",{textContent:convName(c)});
+  if(c.kind==="dm"){
+    const o=dmOther(c), pk=E.peers[o];
+    if(!pk && E.state==="ready") peerKey(o).then(()=>{ if(S.cur===c.id) renderChatHead(); }).catch(()=>{});
+    if(E.state==="ready" && pk?.id){ const l=svg("i-lock"); l.setAttribute("class","e2e-lock"); title.append(l); }
+  }
+  head.append(convAvatar(c,40), h("div",{className:"t"}, title, h("span",{textContent:subText,className:on?"on":""})));
   head.onclick=()=> c.kind==="dm" ? openProfile(dmOther(c)) : groupSheet(c);
   const ok=canPost(c);
   $("composer").hidden=!ok || S.recording; $("blocked").hidden=ok; $("recorder").hidden=!S.recording;
@@ -759,9 +785,9 @@ async function openConv(id){
     $("input").value=S.drafts[id]||""; autoGrow();
     paintFromCache(id);
     S.pres?.track({ ch:id, typing:false });
-    renderPinned();
+    renderPinned(); S.todos=[]; renderTodoBar();
     if(c.kind==="group") watchRoom(c.id); else unwatchRoom();
-    await Promise.all([loadMessages(id).catch(()=>{}), loadPins(id).catch(()=>{})]);
+    await Promise.all([loadMessages(id).catch(()=>{}), loadPins(id).catch(()=>{}), loadTodos(id).catch(()=>{})]);
   }
   markRead(); renderChats();
 }
@@ -769,7 +795,7 @@ function closeChat(){
   if(S.recording) stopRecording(true);
   if(S.cur) saveDraft();
   S.cur=null; document.body.dataset.view="home"; stopTyping(); setReply(null); setEditing(null);
-  for(const el of ["chatBar","msgsWrap","typing","composer","blocked","pinnedBar","chatSearchBar","composeCtx","mentionPop","recorder"]) $(el).hidden=true;
+  for(const el of ["chatBar","msgsWrap","typing","composer","blocked","pinnedBar","todoBar","chatSearchBar","composeCtx","mentionPop","recorder"]) $(el).hidden=true;
   $("chatPlaceholder").hidden=false;
   S.pres?.track({ ch:null, typing:false });
   unwatchRoom(); $("roomBar").hidden=true;
@@ -789,9 +815,250 @@ function markRead(){
   readTimer=setTimeout(()=>sb.from("bt_members").update({ last_read_at:new Date().toISOString(), last_delivered_at:new Date().toISOString(), marked_unread:false }).match({ conversation_id:c.id, user_id:S.me.id }).then(()=>{}), 500);
 }
 
+/* ================= end-to-end encryption (DMs) =================
+   Each person has an ECDH P-256 identity key. The public half lives in bt_keys,
+   the private half stays on their devices (IndexedDB) plus a backup in
+   bt_key_backups that is locked with their password on the device (PBKDF2 + AES-GCM),
+   so signing in on a new phone brings the key along. A DM message is sealed with
+   AES-GCM using a key derived from ECDH(me, them) + HKDF(salt = chat id).
+   Photos, voice and files get their own random key, carried inside the sealed message. */
+const E={ key:null, state:"off", peers:{}, byId:{}, shared:{}, files:{} };
+const te=new TextEncoder(), td=new TextDecoder();
+const ECDH={ name:"ECDH", namedCurve:"P-256" };
+const ENC_TEXT="Encrypted message";
+function b64(buf){ const u=buf instanceof Uint8Array?buf:new Uint8Array(buf); let s=""; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode(...u.subarray(i,i+0x8000)); return btoa(s); }
+const unb64=(s)=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+function kdb(){ return new Promise((res,rej)=>{ const r=indexedDB.open("bt-e2e",1); r.onupgradeneeded=()=>r.result.createObjectStore("keys"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function kget(k){ try{ const db=await kdb(); return await new Promise(res=>{ const r=db.transaction("keys").objectStore("keys").get(k); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); }); }catch{ return null; } }
+async function kput(k,v){ try{ const db=await kdb(); await new Promise(res=>{ const t=db.transaction("keys","readwrite"); t.objectStore("keys").put(v,k); t.oncomplete=res; t.onerror=res; }); }catch{} }
+async function kdel(k){ try{ const db=await kdb(); await new Promise(res=>{ const t=db.transaction("keys","readwrite"); t.objectStore("keys").delete(k); t.oncomplete=res; t.onerror=res; }); }catch{} }
+async function pwKey(pw, salt, iter){
+  const base=await crypto.subtle.importKey("raw", te.encode(pw), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:iter, hash:"SHA-256" }, base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+}
+async function saveBackup(pw){
+  const pk=await crypto.subtle.exportKey("pkcs8", E.key.priv);
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12)), iter=310000;
+  const wrapped=await crypto.subtle.encrypt({ name:"AES-GCM", iv }, await pwKey(pw,salt,iter), pk);
+  const { error } = await sb.from("bt_key_backups").upsert({ user_id:S.me.id, key_id:E.key.id, salt:b64(salt), iv:b64(iv), wrapped:b64(wrapped), iter, saved_at:new Date().toISOString() });
+  if(error) throw error;
+}
+async function importPub(id, jwk){
+  if(E.byId[id]) return E.byId[id];
+  const k=await crypto.subtle.importKey("jwk", { kty:jwk.kty, crv:jwk.crv, x:jwk.x, y:jwk.y, ext:true }, ECDH, true, []);
+  return E.byId[id]=k;
+}
+async function newIdentity(pw){
+  const kp=await crypto.subtle.generateKey(ECDH, true, ["deriveBits"]);
+  const j=await crypto.subtle.exportKey("jwk", kp.publicKey);
+  const { data, error } = await sb.from("bt_keys").insert({ user_id:S.me.id, public_key:{ kty:j.kty, crv:j.crv, x:j.x, y:j.y } }).select("id").single();
+  if(error) throw error;
+  E.key={ id:data.id, priv:kp.privateKey, pub:kp.publicKey }; E.byId[data.id]=kp.publicKey;
+  await saveBackup(pw);
+  await kput("k-"+S.me.id, E.key);
+}
+async function restoreBackup(pw, bk){
+  let raw;
+  try{ raw=await crypto.subtle.decrypt({ name:"AES-GCM", iv:unb64(bk.iv) }, await pwKey(pw, unb64(bk.salt), bk.iter), unb64(bk.wrapped)); }
+  catch{ const e=new Error("wrong password"); e.wrongpw=true; throw e; }
+  const priv=await crypto.subtle.importKey("pkcs8", raw, ECDH, true, ["deriveBits"]);
+  const { data:k, error } = await sb.from("bt_keys").select("public_key").eq("id",bk.key_id).single();
+  if(error) throw error;
+  E.key={ id:bk.key_id, priv, pub:await importPub(bk.key_id, k.public_key) };
+  await kput("k-"+S.me.id, E.key);
+}
+// pw is only known right after typing it (sign-in, unlock, password change)
+async function initE2E(pw){
+  if(!window.crypto?.subtle || !window.indexedDB){ E.state="unsupported"; return; }
+  const uid=S.me.id;
+  try{
+    const [local, latestR, bkR] = await Promise.all([
+      kget("k-"+uid),
+      sb.from("bt_keys").select("id").eq("user_id",uid).order("created_at",{ascending:false}).limit(1).maybeSingle(),
+      sb.from("bt_key_backups").select("*").eq("user_id",uid).maybeSingle(),
+    ]);
+    if(latestR.error || bkR.error) throw latestR.error || bkR.error;
+    const latest=latestR.data, bk=bkR.data;
+    if(local?.priv && latest && local.id===latest.id){
+      E.key=local; E.state="ready";
+      if(pw && (!bk || bk.key_id!==local.id)) saveBackup(pw).catch(()=>{});
+    } else if(pw){
+      if(bk){ try{ await restoreBackup(pw,bk); } catch(e){ if(!e.wrongpw) throw e; await newIdentity(pw); } }
+      else await newIdentity(pw);
+      E.state="ready";
+    } else E.state="locked";
+  }catch{ if(E.state!=="ready") E.state = E.key ? "ready" : "error"; }
+  if(S.me?.id!==uid) return;
+  if(E.state==="ready") await reopenAll();
+  renderChats(); if(S.cur) renderChatHead();
+}
+async function reopenAll(){
+  const list=S.msgs.filter(m=>m.cipher && m._dec!==m.cipher);
+  for(const m of list){ await openRow(m); if(m.media_path) delete S.media[m.media_path]; const ic=m.media_meta?.addon?.ic; if(ic) delete S.media[m.media_path.slice(0,m.media_path.lastIndexOf("/")+1)+ic]; }
+  for(const r of Object.values(S.replyCache||{})) if(r.cipher) await openRow(r);
+  if(list.length){ await signMedia(list.filter(m=>m.media_path && m.media_kind).map(m=>m.media_path)); renderMsgs(); }
+}
+async function peerKey(uid, fresh){
+  const p=E.peers[uid]; if(p && !fresh && Date.now()-p.at<5*60e3) return p;
+  const { data, error } = await sb.from("bt_keys").select("id,public_key").eq("user_id",uid).order("created_at",{ascending:false}).limit(1).maybeSingle();
+  if(error) throw error;
+  if(!data) return E.peers[uid]={ id:null, at:Date.now() };
+  return E.peers[uid]={ id:data.id, pub:await importPub(data.id, data.public_key), jwk:data.public_key, at:Date.now() };
+}
+async function pubById(id){
+  if(E.byId[id]) return E.byId[id];
+  const { data } = await sb.from("bt_keys").select("public_key").eq("id",id).maybeSingle();
+  return data ? importPub(id, data.public_key) : null;
+}
+async function sharedKey(theirId, theirPub, cid){
+  const tag=E.key.id+":"+theirId+":"+cid; if(E.shared[tag]) return E.shared[tag];
+  const bits=await crypto.subtle.deriveBits({ name:"ECDH", public:theirPub }, E.key.priv, 256);
+  const hk=await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
+  return E.shared[tag]=await crypto.subtle.deriveKey({ name:"HKDF", hash:"SHA-256", salt:te.encode(cid), info:te.encode("bt-dm-v1") }, hk, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+}
+const isDM = (cid) => S.convs.find(x=>x.id===cid)?.kind==="dm";
+async function canSeal(cid){
+  if(E.state!=="ready" || !isDM(cid)) return null;
+  const c=S.convs.find(x=>x.id===cid); const other=dmOther(c); if(!other) return null;
+  try{ const p=await peerKey(other); return p.id ? { p } : null; }catch{ return null; }
+}
+async function sealPayload(cid, payload, ctx){
+  const k=await sharedKey(ctx.p.id, ctx.p.pub, cid);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({ name:"AES-GCM", iv }, k, te.encode(JSON.stringify(payload)));
+  return JSON.stringify({ v:1, s:E.key.id, r:ctx.p.id, iv:b64(iv), c:b64(ct) });
+}
+const cleanMeta = (mm) => mm ? Object.fromEntries(Object.entries(mm).filter(([k])=>k!=="e")) : undefined;
+async function sealRow(row, m){
+  const ctx=await canSeal(row.conversation_id);
+  if(!ctx) return row;
+  if(row.media_path && !m?._fk) return row; // media went up unencrypted; keep the message readable
+  const payload={ t:row.content||"" };
+  if(row.media_meta) payload.mm=cleanMeta(row.media_meta);
+  if(m?._fk){ payload.k=m._fk; payload.ft=m._ft; }
+  const out={ ...row, content:ENC_TEXT, cipher:await sealPayload(row.conversation_id, payload, ctx) };
+  if(row.media_meta) out.media_meta = row.media_meta.album ? { e:1, album:row.media_meta.album, i:row.media_meta.i, n:row.media_meta.n } : { e:1 };
+  return out;
+}
+async function sealEdit(m, text){
+  const ctx=await canSeal(m.conversation_id); if(!ctx) return null;
+  const payload={ t:text }; if(m.media_meta) payload.mm=cleanMeta(m.media_meta); if(m._fk){ payload.k=m._fk; payload.ft=m._ft; }
+  return sealPayload(m.conversation_id, payload, ctx);
+}
+function lockRow(m){ if(!m._locked){ m._locked=true; m._mk=m.media_kind; m.media_kind=null; } }
+function registerFiles(m){
+  if(!m._fk || !m.media_path) return;
+  E.files[m.media_path]={ k:m._fk, t:m._ft };
+  const ic=m.media_meta?.addon?.ic; if(ic) E.files[m.media_path.slice(0,m.media_path.lastIndexOf("/")+1)+ic]={ k:m._fk, t:"image/webp" };
+}
+async function openRow(m){
+  if(!m?.cipher) return;
+  if(m._dec===m.cipher){ registerFiles(m); return; }
+  let p=null; try{ p=JSON.parse(m.cipher); }catch{}
+  const mine=m.user_id===S.me?.id;
+  const myId=p && (mine ? p.s : p.r), theirId=p && (mine ? p.r : p.s);
+  if(!p || E.state!=="ready" || !E.key || myId!==E.key.id){ lockRow(m); return; }
+  try{
+    const pub=await pubById(theirId); if(!pub) throw new Error("no key");
+    const k=await sharedKey(theirId, pub, m.conversation_id);
+    const pt=await crypto.subtle.decrypt({ name:"AES-GCM", iv:unb64(p.iv) }, k, unb64(p.c));
+    const d=JSON.parse(td.decode(pt));
+    m.content=typeof d.t==="string" ? d.t : "";
+    if(d.mm) m.media_meta={ ...(m.media_meta||{}), ...d.mm };
+    if(d.k){ m._fk=d.k; m._ft=d.ft; }
+    if(m._locked){ m._locked=false; if(m._mk) m.media_kind=m._mk; }
+    m._dec=m.cipher; registerFiles(m);
+  }catch{ lockRow(m); }
+}
+async function encBlob(blob, fk){
+  const key=await crypto.subtle.importKey("raw", unb64(fk), "AES-GCM", false, ["encrypt"]);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, await blob.arrayBuffer());
+  return new Blob([iv, ct], { type:"application/octet-stream" });
+}
+async function decBuf(buf, fk, type){
+  const key=await crypto.subtle.importKey("raw", unb64(fk), "AES-GCM", false, ["decrypt"]);
+  const u=new Uint8Array(buf);
+  const pt=await crypto.subtle.decrypt({ name:"AES-GCM", iv:u.slice(0,12) }, key, u.slice(12));
+  return new Blob([pt], { type:type||"application/octet-stream" });
+}
+// upload a photo/voice/file, sealed first when the chat is encrypted
+async function uploadMedia(m, blob, ctype){
+  let body=blob, type=ctype;
+  if(m._fk || await canSeal(m.conversation_id)){
+    m._fk ||= b64(crypto.getRandomValues(new Uint8Array(32)));
+    m._ft=ctype; body=await encBlob(blob, m._fk); type="application/octet-stream";
+  }
+  m._blob=body; m._ctype=type;
+  return sb.storage.from("bt-chat-media").upload(m.media_path, body, { contentType:type, cacheControl:"31536000" });
+}
+async function downloadMedia(m, name){
+  const f=E.files[m.media_path];
+  if(!f){
+    const { data, error } = await sb.storage.from("bt-chat-media").createSignedUrl(m.media_path, 600, { download: name || true });
+    if(error){ toast("Couldn't get that file"); return; }
+    const a=h("a",{href:data.signedUrl,target:"_blank",rel:"noopener"}); document.body.append(a); a.click(); a.remove(); return;
+  }
+  toast("Downloading…");
+  try{
+    const { data, error } = await sb.storage.from("bt-chat-media").createSignedUrl(m.media_path, 600);
+    if(error) throw error;
+    const blob=await decBuf(await (await fetch(data.signedUrl)).arrayBuffer(), f.k, f.t);
+    const url=URL.createObjectURL(blob);
+    const a=h("a",{href:url,download:name||"file"}); document.body.append(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60e3);
+  }catch{ toast("Couldn't get that file"); }
+}
+function e2eRewrap(pw){ (E.key ? saveBackup(pw) : initE2E(pw)).catch(()=>{}); }
+function unlockSheet(){
+  openSheet(b=>{
+    const pw=h("input",{className:"input",id:"unlockPw",type:"password",autocomplete:"current-password"});
+    const err=h("div",{className:"err"}); const go=h("button",{className:"btn",textContent:"Unlock"});
+    go.onclick=async()=>{
+      if(pw.value.length<6){ err.textContent="Enter your password."; return; }
+      go.disabled=true; err.textContent="";
+      const { error } = await sb.auth.signInWithPassword({ email:S.me.email, password:pw.value });
+      if(error){ go.disabled=false; err.textContent=/invalid/i.test(error.message)?"That password isn't right.":friendlyErr(error,"Couldn't check your password."); return; }
+      await initE2E(pw.value); go.disabled=false;
+      if(E.state==="ready"){ closeSheet(); toast("Encrypted chats unlocked"); } else err.textContent="Couldn't unlock. Check your connection and try again.";
+    };
+    pw.onkeydown=(e)=>{ if(e.key==="Enter") go.click(); };
+    b.append(h("div",{className:"big-icon"}, svg("i-lock")), h("h2",{textContent:"Unlock encrypted chats",style:"text-align:center"}),
+      h("p",{className:"sub",style:"text-align:center",textContent:"Your direct messages are end-to-end encrypted. Enter your password once on this device to read and send them."}),
+      h("label",{className:"lbl",htmlFor:"unlockPw",textContent:"Password"}), pw, err, go);
+    setTimeout(()=>pw.focus(),300);
+  });
+}
+async function safetyCode(a, b){
+  const parts=[a,b].map(j=>j.x+"."+j.y).sort();
+  const hsh=new Uint8Array(await crypto.subtle.digest("SHA-256", te.encode(parts.join("|"))));
+  const groups=[]; for(let i=0;i<12;i++){ const n=((hsh[i*2]<<8)|hsh[i*2+1])%100000; groups.push(String(n).padStart(5,"0")); }
+  return groups;
+}
+async function encryptionSheet(c){
+  const other=dmOther(c);
+  let p=null; try{ p=await peerKey(other,true); }catch{}
+  let mine=null; if(E.key){ const j=await crypto.subtle.exportKey("jwk", E.key.pub); mine={ x:j.x, y:j.y }; }
+  const code = p?.jwk && mine ? await safetyCode(mine, p.jwk) : null;
+  openSheet(b=>{
+    b.append(h("div",{className:"big-icon"+(code?"":" danger")}, svg("i-lock")), h("h2",{textContent: code ? "End-to-end encrypted" : "Not encrypted yet",style:"text-align:center"}));
+    if(code){
+      b.append(h("p",{className:"sub",style:"text-align:center",textContent:`Messages, photos, voice messages and files in this chat are locked on your phone and only ${firstName(other)}'s devices can open them. Not even the server can read them.`}));
+      b.append(h("h3",{textContent:"Security code"}), h("div",{className:"safety"}, ...code.map(g=>h("span",{textContent:g}))),
+        h("div",{className:"hint",textContent:`Compare this with the code on ${firstName(other)}'s phone. If they match, nobody is listening in.`}));
+    } else if(E.state!=="ready"){
+      b.append(h("p",{className:"sub",style:"text-align:center",textContent:"Unlock encrypted chats on this device to send encrypted messages."}));
+      const u=h("button",{className:"btn",textContent:"Unlock"}); u.onclick=unlockSheet; b.append(u);
+    } else {
+      b.append(h("p",{className:"sub",style:"text-align:center",textContent:`${firstName(other)} hasn't opened the latest version of Beaver Transceiver yet. Messages are encrypted automatically once they do.`}));
+    }
+  });
+}
+
 /* messages */
 async function hydrate(rows){
   if(!rows.length) return;
+  for(const r of rows) if(r.cipher) await openRow(r);
   const ids=rows.map(r=>r.id);
   const polls=rows.filter(r=>r.kind==="poll").map(r=>r.id);
   const replyIds=rows.map(r=>r.reply_to).filter(id=>id && !rows.some(x=>x.id===id) && !S.msgs.some(x=>x.id===id));
@@ -799,14 +1066,14 @@ async function hydrate(rows){
     sb.from("bt_reactions").select("message_id,user_id,emoji").in("message_id", ids),
     polls.length ? sb.from("bt_polls").select("*").in("message_id", polls) : { data:[] },
     polls.length ? sb.from("bt_poll_votes").select("poll_id,user_id,option_idx").in("poll_id", polls) : { data:[] },
-    replyIds.length ? sb.from("bt_messages").select("id,user_id,content,media_kind,kind").in("id", replyIds) : { data:[] },
+    replyIds.length ? sb.from("bt_messages").select("id,user_id,content,media_kind,kind,cipher,conversation_id").in("id", replyIds) : { data:[] },
   ]);
   const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
   for(const r of rx.data||[]) addRx(byId[r.message_id], r.emoji, r.user_id);
   for(const p of pl.data||[]) S.polls[p.message_id]=p;
   for(const v of pv.data||[]) (S.votes[v.poll_id] ||= []).push(v);
   S.replyCache ||= {};
-  for(const r of rp.data||[]) S.replyCache[r.id]=r;
+  for(const r of rp.data||[]){ if(r.cipher) await openRow(r); S.replyCache[r.id]=r; }
   await ensureProfiles(rows.map(r=>r.user_id));
   await signMedia(rows.filter(r=>r.media_path).map(r=>r.media_path));
 }
@@ -882,13 +1149,15 @@ function paint(){
     else if(albumOf[m.id]) bub.append(albumEl(albumOf[m.id]));
     else if(m.media_kind==="image") bub.append(photoEl(m));
     else if(m.media_kind==="audio") bub.append(voiceEl(m));
-    else if(m.media_kind==="file") bub.append(fileEl(m));
+    else if(m.media_kind==="file") bub.append(m.media_meta?.addon ? addonEl(m) : fileEl(m));
     if(m.kind==="text" && m.content && m.media_kind!=="audio" && m.media_kind!=="file"){
-      const t=h("div",{className:"text"}); t.innerHTML=fmt(m.content);
+      const t=h("div",{className:"text"});
+      if(m._locked){ t.classList.add("locked"); t.replaceChildren(svg("i-lock"), E.state==="ready" ? "Can't open this message on this device" : "Encrypted message. Tap to unlock."); if(E.state!=="ready") t.onclick=(e)=>{ e.stopPropagation(); unlockSheet(); }; }
+      else t.innerHTML=fmt(m.content);
       t.querySelectorAll(".spoiler").forEach((el,k)=>{ el.dataset.k=k; if(S.spoilShown.has(m.id+":"+k)) el.classList.add("shown"); });
       bub.append(t);
     }
-    const url=m.kind==="text" && !m.media_path && firstUrl(m.content);
+    const url=m.kind==="text" && !m.media_path && !m.cipher && !m._locked && !(isDM(m.conversation_id) && E.state==="ready") && firstUrl(m.content);
     if(url){ const card=linkCard(url); if(card) bub.append(card); }
     bub.append(h("span",{className:"when"}, m.edited_at ? "edited ·" : null, m._failed ? "Not sent · tap to retry" : m._pending ? "Sending…" : timeStr(ts), mine && !m._failed ? tickEl(c,m) : null));
     gestures(bub,{
@@ -936,10 +1205,10 @@ function tickEl(c,m){
 function groupAlbums(list){
   const albumOf={}, skip=new Set();
   for(let i=0;i<list.length;i++){
-    const m=list[i], a=m.media_meta?.album;
+    const m=list[i], a=!m._locked && m.media_meta?.album;
     if(!a || m.media_kind!=="image" || skip.has(m.id)) continue;
     const group=[m];
-    for(let j=i+1;j<list.length;j++){ const n=list[j]; if(n.media_meta?.album===a && n.user_id===m.user_id){ group.push(n); skip.add(n.id); } else break; }
+    for(let j=i+1;j<list.length;j++){ const n=list[j]; if(n.media_meta?.album===a && !n._locked && n.user_id===m.user_id){ group.push(n); skip.add(n.id); } else break; }
     if(group.length>1){ group.sort((x,y)=>(x.media_meta.i||0)-(y.media_meta.i||0)); albumOf[m.id]=group; }
   }
   return { albumOf, skip };
@@ -969,15 +1238,100 @@ const sizeStr=(b)=> !b ? "" : b<1024 ? b+" B" : b<1048576 ? (b/1024).toFixed(0)+
 function fileEl(m){
   const meta=m.media_meta||{}; const ext=((meta.name||"").split(".").pop()||"").toUpperCase().slice(0,6);
   const dl=h("button",{className:"dl",type:"button","aria-label":"Download "+(meta.name||"file")}, svg("i-download"));
-  dl.onclick=async(e)=>{
-    e.stopPropagation(); if(m._pending) return;
-    const { data, error } = await sb.storage.from("bt-chat-media").createSignedUrl(m.media_path, 600, { download: meta.name || true });
-    if(error){ toast("Couldn't get that file"); return; }
-    const a=h("a",{href:data.signedUrl,target:"_blank",rel:"noopener"}); document.body.append(a); a.click(); a.remove();
-  };
+  dl.onclick=(e)=>{ e.stopPropagation(); if(m._pending) return; downloadMedia(m, meta.name); };
   return h("div",{className:"file"}, h("div",{className:"ficon"}, svg("i-file"), h("span",{textContent:ext})), h("div",{className:"fmeta"}, h("b",{textContent:meta.name||"File"}), h("span",{textContent:sizeStr(meta.size)+(m._pending?" · uploading…":"")})), dl);
 }
+/* ---- Minecraft pack cards ---- */
+const PACK_TYPES = { data:"Behavior pack", script:"Behavior pack", client_data:"Behavior pack", resources:"Resource pack", skin_pack:"Skin pack", world_template:"World template", javascript:"Behavior pack" };
+let zipLib=null;
+function loadZip(){
+  if(window.JSZip) return Promise.resolve(window.JSZip);
+  return zipLib ||= new Promise((res,rej)=>{ const s=document.createElement("script"); s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload=()=>res(window.JSZip); s.onerror=()=>{ zipLib=null; rej(new Error("zip")); }; document.head.append(s); });
+}
+const mcClean = (s)=> String(s||"").replace(/§./g,"").replace(/\s+/g," ").trim();
+function parseLooseJSON(txt){
+  txt = txt.replace(/^﻿/,"");
+  try{ return JSON.parse(txt); }catch{}
+  // manifests sometimes carry comments or trailing commas
+  let out="", inStr=false;
+  for(let i=0;i<txt.length;i++){
+    const c=txt[i];
+    if(inStr){ out+=c; if(c==="\\"){ out+=txt[++i]||""; } else if(c==='"') inStr=false; continue; }
+    if(c==='"'){ inStr=true; out+=c; continue; }
+    if(c==="/" && txt[i+1]==="/"){ while(i<txt.length && txt[i]!=="\n") i++; out+="\n"; continue; }
+    if(c==="/" && txt[i+1]==="*"){ i+=2; while(i<txt.length && !(txt[i]==="*"&&txt[i+1]==="/")) i++; i++; continue; }
+    out+=c;
+  }
+  return JSON.parse(out.replace(/,\s*([}\]])/g,"$1"));
+}
+async function packsIn(zip, depth){
+  const found=[];
+  const files=Object.values(zip.files).filter(f=>!f.dir);
+  for(const f of files.filter(f=>/(^|\/)manifest\.json$/i.test(f.name))){
+    const dir=f.name.slice(0, f.name.length-"manifest.json".length);
+    if(dir.split("/").length>4) continue;
+    let man; try{ man=parseLooseJSON(await f.async("string")); }catch{ continue; }
+    const hd=man?.header; if(!hd) continue;
+    let name=hd.name, desc=hd.description;
+    if(/^pack\.|\.name$|\.description$/i.test(name||"") || /^pack\./i.test(desc||"")){
+      const lang = zip.file(dir+"texts/en_US.lang") || zip.file(dir+"texts/en_GB.lang");
+      if(lang){
+        const map={}; (await lang.async("string")).split(/\r?\n/).forEach(l=>{ const k=l.indexOf("="); if(k>0) map[l.slice(0,k).trim()]=l.slice(k+1).replace(/\s*##.*$/,"").replace(/\t#.*$/,"").trim(); });
+        if(map[name]) name=map[name]; if(map[desc]) desc=map[desc];
+      }
+    }
+    const v=hd.version; const version = Array.isArray(v) ? v.join(".") : typeof v==="string" ? v.replace(/^v/i,"") : "";
+    const types=[...new Set((man.modules||[]).map(mo=>PACK_TYPES[mo?.type]).filter(Boolean))];
+    const iconFile = zip.file(dir+"pack_icon.png") || zip.file(dir+"pack_icon.jpg") || zip.file(dir+"world_icon.jpeg");
+    found.push({ dir, name:mcClean(name), desc:mcClean(desc), version, types, iconFile });
+  }
+  if(depth<1){
+    for(const f of files.filter(f=>/\.(mcpack|zip)$/i.test(f.name))){
+      try{ found.push(...await packsIn(await (await loadZip()).loadAsync(await f.async("uint8array")), depth+1)); }catch{}
+    }
+  }
+  return found;
+}
+async function readPack(file){
+  const JSZip=await loadZip();
+  const zip=await JSZip.loadAsync(file);
+  const packs=await packsIn(zip,0);
+  if(!packs.length) return null;
+  const rank=(p)=> p.types.includes("Behavior pack")?0 : p.types.includes("Resource pack")?1 : 2;
+  packs.sort((a,b)=>rank(a)-rank(b) || a.dir.length-b.dir.length);
+  const main=packs[0];
+  const types=[...new Set(packs.flatMap(p=>p.types))].slice(0,4);
+  const withIcon = [main, ...packs].find(p=>p.iconFile);
+  let icon=null;
+  if(withIcon){
+    try{
+      const raw=await withIcon.iconFile.async("blob");
+      icon=(await resizeImage(new File([raw],"icon.png",{type:"image/png"}),128,true)).blob;
+    }catch{}
+  }
+  let name=main.name || file.name.replace(/\.[^.]+$/,"");
+  return { name:name.slice(0,60), desc:(main.desc||"").slice(0,160), version:(main.version||"").slice(0,16), types, icon };
+}
+function addonEl(m){
+  const meta=m.media_meta||{}, a=meta.addon;
+  const dir=m.media_path.slice(0, m.media_path.lastIndexOf("/")+1);
+  const iconPath = a.ic ? dir+a.ic : null;
+  const iconUrl = m._icon || (iconPath && S.media[iconPath]?.url);
+  if(iconPath && !iconUrl) needSign([iconPath]);
+  const ext=(meta.name||"").split(".").pop().toLowerCase();
+  const ico=h("div",{className:"aicon"});
+  if(iconUrl) ico.append(h("img",{src:iconUrl,alt:"",loading:"lazy",decoding:"async"})); else ico.append(svg("i-game"));
+  const head=h("div",{className:"ahead"}, ico, h("div",{className:"atitle"}, h("b",{textContent:a.n||meta.name||"Pack"}), h("span",{textContent:[a.v?"v"+a.v:"", "."+ext].filter(Boolean).join(" · ")})));
+  const box=h("div",{className:"addon"}, head);
+  if(a.d) box.append(h("p",{className:"adesc",textContent:a.d}));
+  if(a.t?.length) box.append(h("div",{className:"atags"}, ...a.t.map(t=>h("span",{textContent:t}))));
+  const dl=h("button",{className:"aget",type:"button"}, svg("i-download"), h("span",{textContent: m._pending ? "Uploading…" : "Download · "+sizeStr(meta.size)}));
+  dl.onclick=(e)=>{ e.stopPropagation(); if(m._pending) return; downloadMedia(m, meta.name); };
+  box.append(dl);
+  return box;
+}
 function snippet(r){
+  if(r.media_kind==="file" && r.media_meta?.addon) return "Addon: "+(r.media_meta.addon.n||r.media_meta.name);
   if(r.kind==="poll") return "Poll: "+stripEmoji(r.content).replace(/^Poll: /,"");
   if(r.media_kind==="image") return r.content ? "Photo: "+r.content : "Photo";
   if(r.media_kind==="audio") return "Voice message";
@@ -987,11 +1341,16 @@ function snippet(r){
 
 /* media */
 async function signMedia(paths){
+  for(const m of S.msgs) if(m._fk) registerFiles(m);
   const now=Date.now();
   const need=[...new Set(paths.filter(p=>p && !(S.media[p] && S.media[p].exp>now+60e3)))];
   if(!need.length) return;
   const { data } = await sb.storage.from("bt-chat-media").createSignedUrls(need, 3600);
-  for(const d of data||[]) if(d.signedUrl) S.media[d.path]={ url:d.signedUrl, exp:now+3600e3 };
+  await Promise.all((data||[]).filter(d=>d.signedUrl).map(async d=>{
+    const f=E.files[d.path];
+    if(!f){ S.media[d.path]={ url:d.signedUrl, exp:now+3600e3 }; return; }
+    try{ const blob=await decBuf(await (await fetch(d.signedUrl)).arrayBuffer(), f.k, f.t); S.media[d.path]={ url:URL.createObjectURL(blob), exp:Infinity }; }catch{}
+  }));
 }
 const mediaUrl = (m) => m._local || S.media[m.media_path]?.url;
 function photoEl(m){
@@ -1173,8 +1532,64 @@ async function loadPins(cid){
   if(S.cur!==cid) return;
   S.pins=data||[];
   const need=S.pins.map(p=>p.message_id).filter(id=>!findMsg(id));
-  if(need.length){ const { data:ms } = await sb.from("bt_messages").select("id,user_id,content,media_kind,kind,created_at").in("id",need); S.replyCache ||= {}; for(const x of ms||[]) S.replyCache[x.id]=x; }
+  if(need.length){ const { data:ms } = await sb.from("bt_messages").select("id,user_id,content,media_kind,kind,created_at,cipher,conversation_id").in("id",need); S.replyCache ||= {}; for(const x of ms||[]){ if(x.cipher) await openRow(x); S.replyCache[x.id]=x; } }
   renderPinned();
+}
+/* ---- shared to-do list ---- */
+S.todos=[]; let todoOpen=false;
+async function loadTodos(cid){
+  const { data } = await sb.from("bt_todos").select("*").eq("conversation_id",cid).order("created_at",{ascending:true});
+  if(S.cur!==cid) return;
+  S.todos=data||[]; renderTodoBar(); if(todoOpen) paintTodos();
+}
+function renderTodoBar(){
+  const bar=$("todoBar"); const n=S.todos.length, done=S.todos.filter(t=>t.done).length;
+  if(!S.cur || !n){ bar.hidden=true; return; }
+  const next=S.todos.find(t=>!t.done);
+  bar.replaceChildren(svg("i-check2"), h("div",{className:"t"}, h("small",{textContent:`To-do · ${done} of ${n} done`}), h("span",{textContent: next ? next.text : "All done"})), h("i",{className:"todo-prog",style:`--p:${Math.round(done/n*100)}%`}));
+  bar.hidden=false; bar.onclick=todoSheet;
+}
+function paintTodos(){
+  const list=$("todoList"); if(!list) return;
+  const open=S.todos.filter(t=>!t.done), done=S.todos.filter(t=>t.done);
+  list.replaceChildren();
+  if(!S.todos.length) list.append(h("div",{className:"empty",style:"padding:20px 10px"}, h("p",{textContent:"Nothing here yet. Add the first thing to do."})));
+  const row=(t)=>{
+    const cb=h("button",{className:"todo-cb"+(t.done?" on":""),type:"button","aria-label":t.done?"Mark not done":"Mark done"}, svg("i-check"));
+    cb.onclick=async()=>{ t.done=!t.done; paintTodos(); renderTodoBar(); const { error } = await sb.from("bt_todos").update({ done:t.done }).eq("id",t.id); if(error){ t.done=!t.done; paintTodos(); toast("Couldn't update that"); } };
+    const del=h("button",{className:"todo-x",type:"button","aria-label":"Delete"}, svg("i-x"));
+    del.onclick=async()=>{ S.todos=S.todos.filter(x=>x!==t); paintTodos(); renderTodoBar(); await sb.from("bt_todos").delete().eq("id",t.id); };
+    const who = t.done && t.done_by ? (t.done_by===S.me.id?"You":firstName(t.done_by)) : (t.created_by===S.me.id?"You":firstName(t.created_by));
+    return h("div",{className:"todo"+(t.done?" done":"")}, cb, h("div",{className:"todo-t"}, h("span",{textContent:t.text}), h("small",{textContent:(t.done?"Done by ":"Added by ")+who})), del);
+  };
+  open.forEach(t=>list.append(row(t)));
+  if(done.length){
+    const hd=h("div",{className:"todo-head"}, h("span",{textContent:`Done · ${done.length}`}));
+    const clr=h("button",{className:"link",type:"button",textContent:"Clear done"});
+    clr.onclick=async()=>{ const ids=done.map(t=>t.id); S.todos=S.todos.filter(t=>!t.done); paintTodos(); renderTodoBar(); await sb.from("bt_todos").delete().in("id",ids); };
+    hd.append(clr); list.append(hd);
+    done.forEach(t=>list.append(row(t)));
+  }
+}
+function todoSheet(){
+  const cid=S.cur; if(!cid) return;
+  todoOpen=true;
+  openSheet(b=>{
+    b.append(h("h2",{textContent:"To-do list"}), h("p",{className:"sub",textContent:"Everyone in this chat can add, tick off and remove things."}));
+    const inp=h("input",{className:"input",maxLength:200,placeholder:"Add something to do",enterKeyHint:"done"});
+    const add=h("button",{className:"pill primary",type:"submit",textContent:"Add"});
+    const form=h("form",{className:"todo-add"}, inp, add);
+    form.onsubmit=async(e)=>{
+      e.preventDefault(); const text=inp.value.trim(); if(!text) return;
+      inp.value=""; const tmp={ id:"tmp-"+uuid(), conversation_id:cid, text, done:false, created_by:S.me.id, created_at:new Date().toISOString() };
+      S.todos.push(tmp); paintTodos(); renderTodoBar();
+      const { data, error } = await sb.from("bt_todos").insert({ conversation_id:cid, text }).select().single();
+      if(error){ S.todos=S.todos.filter(t=>t!==tmp); paintTodos(); renderTodoBar(); toast(/full/.test(error.message)?"This list is full (200 items)":"Couldn't add that"); return; }
+      Object.assign(tmp,data); paintTodos();
+    };
+    b.append(form, h("div",{className:"todo-list",id:"todoList"}));
+    paintTodos();
+  });
 }
 function renderPinned(){
   const bar=$("pinnedBar");
@@ -1216,8 +1631,12 @@ $("chatSearchBar").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const q=$("chatSearchIn").value.trim(); if(q.length<2){ toast("Type at least 2 characters"); return; }
   $("chatSearchIn").blur();
-  const { data, error } = await sb.from("bt_messages").select("id,user_id,content,created_at,media_kind,kind").eq("conversation_id",S.cur).neq("kind","system")
-    .ilike("content", "%"+q.replace(/[%_\\]/g, m=>"\\"+m)+"%").order("created_at",{ascending:false}).limit(50);
+  let data, error;
+  if(isDM(S.cur) && S.msgs.some(m=>m.cipher)){
+    const ql=q.toLowerCase();
+    data=S.msgs.filter(m=>m.kind!=="system" && !m._locked && (m.content||"").toLowerCase().includes(ql)).slice().reverse().slice(0,50);
+  } else ({ data, error } = await sb.from("bt_messages").select("id,user_id,content,created_at,media_kind,kind").eq("conversation_id",S.cur).neq("kind","system")
+    .ilike("content", "%"+q.replace(/[%_\\]/g, m=>"\\"+m)+"%").order("created_at",{ascending:false}).limit(50));
   if(error){ toast("Search didn't work. Try again."); return; }
   await ensureProfiles((data||[]).map(r=>r.user_id));
   openSheet(b=>{
@@ -1330,9 +1749,12 @@ $("composer").addEventListener("submit", async (e)=>{
     const m=S.editing; if(!text){ toast("A message can't be empty"); return; }
     setEditing(null); input.value=S.drafts[S.cur]||""; autoGrow();
     if(text===m.content) return;
+    let patch={ content:text };
+    if(m.cipher){ const c=await sealEdit(m, text); if(!c){ toast("Unlock encrypted chats to edit this message"); return; } patch={ cipher:c }; }
     const old=m.content; m.content=text; m.edited_at=new Date().toISOString(); renderMsgs();
-    const { error } = await sb.from("bt_messages").update({ content:text }).eq("id",m.id);
+    const { error } = await sb.from("bt_messages").update(patch).eq("id",m.id);
     if(error){ m.content=old; m.edited_at=null; renderMsgs(); toast(friendlyErr(error,"Couldn't edit that message")); }
+    else if(patch.cipher){ m.cipher=patch.cipher; m._dec=patch.cipher; }
     return;
   }
   if(!text){ startRecording(); return; }
@@ -1348,7 +1770,9 @@ async function send(m){
   const row={ id:m.id, conversation_id:m.conversation_id, user_id:m.user_id, content:m.content };
   if(m.reply_to) row.reply_to=m.reply_to;
   if(m.media_path){ row.media_path=m.media_path; row.media_kind=m.media_kind; row.media_meta=m.media_meta; }
-  const { error } = await sb.from("bt_messages").insert(row);
+  let sealed=row; try{ sealed=await sealRow(row, m); }catch{}
+  if(sealed.cipher){ m.cipher=sealed.cipher; m._dec=sealed.cipher; registerFiles(m); }
+  const { error } = await sb.from("bt_messages").insert(sealed);
   if(error && /duplicate key/i.test(error.message)){ m._pending=false; dropOutbox(m.id); renderMsgs(); return; }
   if(error && isNetErr(error) && !m.media_path){ addOutbox(m); setOffline(true); renderMsgs(); return; }
   m._pending=false;
@@ -1369,6 +1793,7 @@ function bumpConv(m){
   const c=S.convs.find(x=>x.id===m.conversation_id); if(!c) return reloadConvs();
   c.last_message_at=m.created_at;
   c.last_message_preview = m.media_kind==="audio" ? "Voice message" : (m.content||"").replace(/\s+/g," ").slice(0,90);
+  if(c.kind==="dm" && m.cipher && !m._locked){ (S.plainPrev ||= {})[c.id]={ at:m.created_at, p:c.last_message_preview }; store(ukey("bt-prev"), S.plainPrev); }
   c.last_message_user = m.kind==="system" ? null : m.user_id;
   sortConvs(); renderChats(); renderBadges();
 }
@@ -1377,7 +1802,9 @@ function addOutbox(m){ if(!S.outbox.some(x=>x.id===m.id)){ S.outbox.push({ id:m.
 function dropOutbox(id){ const n=S.outbox.length; S.outbox=S.outbox.filter(x=>x.id!==id); if(S.outbox.length!==n) store(ukey("bt-outbox"), S.outbox); }
 async function flushOutbox(){
   for(const o of [...S.outbox]){
-    const { error } = await sb.from("bt_messages").insert({ id:o.id, conversation_id:o.conversation_id, user_id:o.user_id, content:o.content, ...(o.reply_to?{reply_to:o.reply_to}:{}) });
+    let row={ id:o.id, conversation_id:o.conversation_id, user_id:o.user_id, content:o.content, ...(o.reply_to?{reply_to:o.reply_to}:{}) };
+    try{ row=await sealRow(row, null); }catch{}
+    const { error } = await sb.from("bt_messages").insert(row);
     if(!error || /duplicate key/i.test(error.message)){ dropOutbox(o.id); const m=S.msgs.find(x=>x.id===o.id); if(m){ m._pending=false; } }
     else if(isNetErr(error)) return;
     else { dropOutbox(o.id); const m=S.msgs.find(x=>x.id===o.id); if(m){ m._pending=false; m._failed=true; } }
@@ -1420,7 +1847,7 @@ $("photoFile").addEventListener("change", async ()=>{
       const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:caption, reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"image", media_meta:{ w:img.w, h:img.h }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:local, _blob:img.blob, _ctype:img.blob.type };
       setReply(null);
       if(S.cur===cid){ S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight; }
-      const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, img.blob, { contentType:img.blob.type, cacheControl:"31536000" });
+      const { error } = await uploadMedia(m, img.blob, img.blob.type);
       if(error){ m._pending=false; m._failed=true; renderMsgs(); toast(isNetErr(error)?"You're offline — photos send when you're back online. Tap to retry.":"Couldn't upload that photo"); return; }
       m._uploaded=true; S.media[m.media_path]={ url:local, exp:Date.now()+3600e3 };
       bumpConv(m); send(m);
@@ -1446,7 +1873,7 @@ async function albumSheet(files){
         return { id, conversation_id:cid, user_id:S.me.id, kind:"text", content:i===0?cap.value.trim():"", reply_to:i===0?reply:null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"image", media_meta:{ w:img.w, h:img.h, album, i, n }, created_at:new Date(base+i).toISOString(), rx:{}, _pending:true, _local:urls[i], _blob:img.blob, _ctype:img.blob.type }; });
       if(S.cur===cid){ S.msgs.push(...msgs); paint(); $("msgs").scrollTop=$("msgs").scrollHeight; }
       for(const m of msgs){
-        const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, m._blob, { contentType:m._ctype, cacheControl:"31536000" });
+        const { error } = await uploadMedia(m, m._blob, m._ctype);
         if(error){ m._pending=false; m._failed=true; continue; }
         m._uploaded=true; S.media[m.media_path]={ url:m._local, exp:Date.now()+3600e3 };
         await send(m);
@@ -1463,10 +1890,27 @@ async function sendFile(file){
   const id=uuid(); const ext=((file.name.match(/\.([a-z0-9]{1,10})$/i)||[])[1]||"bin").toLowerCase();
   const ctype = ext==="pdf" ? "application/pdf" : "application/octet-stream";
   const name=file.name.replace(/[\u0000-\u001f]/g,"").slice(0,120) || "file."+ext;
+  const isPack = /^(mcaddon|mcpack|mcworld|mctemplate)$/.test(ext);
   const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"File: "+name, reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"file", media_meta:{ name, size:file.size }, created_at:new Date().toISOString(), rx:{}, _pending:true, _blob:file, _ctype:ctype };
   setReply(null);
+  if(isPack){
+    toast("Reading pack…");
+    const info = await readPack(file).catch(()=>null);
+    if(info){
+      m.media_meta.addon = { n:info.name, d:info.desc, v:info.version, t:info.types };
+      m.content = "Addon: "+info.name;
+      if(info.icon){
+        m._icon = URL.createObjectURL(info.icon);
+        const ip = `${cid}/${S.me.id}/${id}-icon.${info.icon.type==="image/webp"?"webp":"png"}`;
+        if(await canSeal(cid)) m._fk ||= b64(crypto.getRandomValues(new Uint8Array(32)));
+        const iconBody = m._fk ? await encBlob(info.icon, m._fk) : info.icon;
+        const { error:ie } = await sb.storage.from("bt-chat-media").upload(ip, iconBody, { contentType: m._fk ? "application/octet-stream" : info.icon.type, cacheControl:"31536000" });
+        if(!ie) m.media_meta.addon.ic = ip.split("/").pop();
+      }
+    }
+  }
   S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight;
-  const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, file, { contentType:ctype, cacheControl:"31536000" });
+  const { error } = await uploadMedia(m, file, ctype);
   if(error){ m._pending=false; m._failed=true; renderMsgs(); toast(isNetErr(error)?"You're offline. Tap the file to retry.":"Couldn't upload that file"); return; }
   m._uploaded=true; bumpConv(m); send(m);
 }
@@ -1527,7 +1971,7 @@ async function finishRecording(){
   const m={ id, conversation_id:cid, user_id:S.me.id, kind:"text", content:"Voice message", reply_to:S.reply?.id||null, media_path:`${cid}/${S.me.id}/${id}.${ext}`, media_kind:"audio", media_meta:{ d:Math.round(secs) }, created_at:new Date().toISOString(), rx:{}, _pending:true, _local:URL.createObjectURL(blob), _blob:blob, _ctype:mime };
   setReply(null);
   S.msgs.push(m); paint(); $("msgs").scrollTop=$("msgs").scrollHeight;
-  const { error } = await sb.storage.from("bt-chat-media").upload(m.media_path, blob, { contentType:mime, cacheControl:"31536000" });
+  const { error } = await uploadMedia(m, blob, mime);
   if(error){ m._pending=false; m._failed=true; renderMsgs(); toast("Couldn't upload the voice message"); return; }
   m._uploaded=true; S.media[m.media_path]={ url:m._local, exp:Date.now()+3600e3 };
   bumpConv(m); send(m);
@@ -1553,7 +1997,9 @@ async function openProfile(uid){
     const act=activityLine(uid); if(act) top.append(act);
     if(p.status) top.append(h("div",{className:"custom",textContent:p.status}));
     if(p.bio) top.append(h("p",{className:"bio",textContent:p.bio}));
-    const lk=linkChips(p.links); if(lk) top.append(lk);
+    const lk=linkChips(p.links);
+    if(p.xbox?.gt){ const gt=h("span",{className:"chip xbox-chip"}, svg("i-game"), p.xbox.gt); if(lk) lk.prepend(gt); else top.append(h("div",{className:"chips"}, gt)); }
+    if(lk) top.append(lk);
     const facts=h("div",{className:"facts"});
     facts.append(h("div",{className:"fact"},h("small",{textContent:"Joined"}),h("b",{textContent:longDate(p.created_at)})));
     const bd=S.bdays[uid];
@@ -1802,11 +2248,12 @@ $("chatMenuBtn").onclick=()=>{
     const menu=h("div",{className:"menu"});
     menu.append(menuBtn("🔍  Search in chat",()=>{ closeSheet(); $("chatSearchBtn").click(); }));
     menu.append(menuBtn("📌  Pinned messages",pinsSheet,{ right:String(S.pins.length) }));
+    menu.append(menuBtn("✅  To-do list",todoSheet,{ right: S.todos.length ? `${S.todos.filter(t=>t.done).length}/${S.todos.length}` : "" }));
     menu.append(menuBtn("🔔  Notifications",()=>notifySheet(c),{ right:{all:"All",mentions:"Mentions",off:"Off"}[me?.notify||"all"] }));
     menu.append(menuBtn(me?.pinned?"📌  Unpin chat":"📌  Pin chat to top",()=>{ closeSheet(); updateMyMember(c,{ pinned:!me.pinned }); }));
     menu.append(menuBtn(me?.archived?"📤  Unarchive chat":"🗄️  Archive chat",()=>{ closeSheet(); updateMyMember(c,{ archived:!me.archived }); }));
     if(c.kind==="group") menu.append(menuBtn("👥  Group info",()=>groupSheet(c)));
-    else { const o=dmOther(c); menu.append(menuBtn("👤  View profile",()=>openProfile(o)), menuBtn("🚩  Report "+firstName(o),()=>reportSheet({ user:o }),{ danger:true })); if(!S.blocks.has(o)) menu.append(menuBtn("⛔  Block "+firstName(o),()=>blockSheet(o),{ danger:true })); }
+    else { const o=dmOther(c); menu.append(menuBtn("🔐  Encryption",()=>encryptionSheet(c),{ right: E.state==="ready" && E.peers[o]?.id ? "On" : "Off" }), menuBtn("👤  View profile",()=>openProfile(o)), menuBtn("🚩  Report "+firstName(o),()=>reportSheet({ user:o }),{ danger:true })); if(!S.blocks.has(o)) menu.append(menuBtn("⛔  Block "+firstName(o),()=>blockSheet(o),{ danger:true })); }
     b.append(menu);
   });
 };
@@ -1975,6 +2422,7 @@ function renderSettings(){
     menuBtn("🔔  Notifications & sounds",notificationsSheet),
     menuBtn("🔒  Privacy",privacySheet,{ right:{everyone:"Everyone",fof:"Friends of friends",nobody:"Nobody"}[S.profile?.add_policy||"everyone"] }),
     menuBtn("⛔  Blocked users",blockedSheet,{ right:String(S.blocks.size) }),
+    menuBtn("🎮  Xbox",xboxSheet,{ right: S.profile?.xbox?.gt || "Not linked" }),
     menuBtn("💻  Devices",devicesSheet),
     menuBtn("🔐  Email & password",accountSheet)
   );
@@ -1983,6 +2431,55 @@ function renderSettings(){
   const out=h("button",{className:"btn ghost",textContent:"Sign out"}); out.onclick=()=>sb.auth.signOut();
   const del=h("button",{className:"btn text-danger",textContent:"Delete my account"}); del.onclick=deleteAccountSheet;
   box.append(out, del, h("div",{className:"hint",style:"text-align:center",textContent:"Signed in as "+(S.me.email||"")}));
+}
+/* ---- Xbox activity ---- */
+async function xboxFn(body){
+  const { data:{ session } } = await sb.auth.getSession();
+  const res = await fetch(SUPABASE_URL+"/functions/v1/bt-xbox",{ method:"POST", headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+(session?.access_token||"") }, body:JSON.stringify(body) });
+  return res.json().catch(()=>({ error:"bad" }));
+}
+async function refreshMyProfile(){
+  const { data } = await sb.from("bt_profiles").select("*").eq("id",S.me.id).single();
+  if(data){ S.profile=S.P[S.me.id]=data; renderMe(); renderSettings(); }
+}
+async function finishXboxLink(code){
+  if(!code){ toast("Xbox linking was cancelled"); return; }
+  toast("Linking your Xbox account…");
+  try{
+    const r=await xboxFn({ action:"link", code });
+    if(r.ok){ await refreshMyProfile(); toast("Linked "+r.gamertag); }
+    else toast("Couldn't link your Xbox account. Try again.");
+  }catch{ toast("Couldn't link your Xbox account. Check your connection."); }
+}
+function xboxSheet(){
+  const x=S.profile?.xbox;
+  openSheet(b=>{
+    b.append(h("div",{className:"big-icon"}, svg("i-game")), h("h2",{textContent:"Xbox",style:"text-align:center"}));
+    if(!x?.gt){
+      b.append(h("p",{className:"sub",style:"text-align:center",textContent:"Link your Xbox account and your profile shows what you're playing, like Minecraft, automatically. Works for games on Xbox, PC, phone and Switch that use Xbox sign-in."}));
+      const go=h("button",{className:"btn",textContent:"Link Xbox account"}); b.append(go);
+      go.onclick=async()=>{
+        go.disabled=true; go.textContent="Opening…";
+        const c=await xboxFn({ action:"config" }).catch(()=>null);
+        if(!c?.enabled){ go.disabled=false; go.textContent="Link Xbox account"; toast("Xbox linking isn't switched on yet"); return; }
+        location.href=c.authUrl;
+      };
+      b.append(h("div",{className:"hint",style:"text-align:center",textContent:"You sign in with Microsoft on xbl.io. Beaver Transceiver never sees your password."}));
+      return;
+    }
+    b.append(h("p",{className:"sub",style:"text-align:center",textContent:"Linked as "+x.gt}));
+    const now=xboxNow(S.me.id);
+    b.append(h("div",{className:"fact wide",style:"margin-bottom:6px"}, h("small",{textContent:"Right now"}), h("b",{textContent: now ? "Playing "+now.game+(now.device?" on "+now.device:"") : x.show===false ? "Hidden" : x.on ? "Online on Xbox" : "Not playing"})));
+    const tg=h("label",{className:"toggle"}, h("span",{}, h("b",{textContent:"Show what I'm playing"}), h("small",{textContent:"Friends see the game on your profile. Updates every few minutes."})), h("input",{type:"checkbox",checked:x.show!==false}));
+    const cb=tg.querySelector("input");
+    cb.onchange=async()=>{ cb.disabled=true; await xboxFn({ action:"show", show:cb.checked }); await refreshMyProfile(); cb.disabled=false; };
+    b.append(tg);
+    const rf=h("button",{className:"btn ghost",textContent:"Check now"});
+    rf.onclick=async()=>{ rf.disabled=true; await xboxFn({ action:"refresh" }); await refreshMyProfile(); rf.disabled=false; closeSheet(); xboxSheet(); };
+    const un=h("button",{className:"btn text-danger",textContent:"Unlink Xbox"});
+    un.onclick=async()=>{ un.disabled=true; await xboxFn({ action:"unlink" }); await refreshMyProfile(); closeSheet(); toast("Xbox unlinked"); };
+    b.append(rf, un);
+  });
 }
 function myQr(){ qrSheet(`${BASE}?add=${S.profile.username}`, "Add me on Beaver Transceiver"); }
 $("myQrBtn2").onclick=myQr;
@@ -2153,7 +2650,7 @@ function accountSheet(){
       if(pw.value!==pw2.value){ e2.textContent="The passwords don't match."; return; }
       g2.disabled=true; const { error } = await sb.auth.updateUser({ password:pw.value }); g2.disabled=false;
       if(error){ e2.textContent=friendlyErr(error, /reauth|recent/i.test(error.message)?"Sign out and back in, then try again.":"Couldn't change the password."); return; }
-      pw.value=pw2.value=""; e2.textContent=""; toast("Password changed");
+      e2eRewrap(pw.value); pw.value=pw2.value=""; e2.textContent=""; toast("Password changed");
     };
     b.append(h("label",{className:"lbl",htmlFor:"newEmail",textContent:"Email"}), em, h("div",{className:"hint",textContent:"We'll send a confirmation link to the new address."}), e1, g1,
       h("h3",{textContent:"Password"}), h("label",{className:"lbl",htmlFor:"newPw",textContent:"New password"}), pw, h("label",{className:"lbl",htmlFor:"newPw2",textContent:"Repeat new password"}), pw2, e2, g2);
@@ -2225,12 +2722,13 @@ function banSheet(uid){
 function subscribe(){
   S.rt=sb.channel("bt-live")
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_messages"},async ({new:m})=>{
+      if(m.cipher) await openRow(m);
       await ensureProfiles([m.user_id]);
       const mine=m.user_id===S.me.id;
       if(!mine) markDelivered(m.conversation_id);
       if(m.conversation_id===S.cur){
         const ex=S.msgs.find(x=>x.id===m.id);
-        if(ex){ Object.assign(ex,{ created_at:m.created_at, _pending:false, _failed:false }); renderMsgs(); }
+        if(ex){ Object.assign(ex,{ created_at:m.created_at, _pending:false, _failed:false }); if(m.cipher && !ex.cipher){ ex.cipher=m.cipher; ex._dec=m.cipher; } renderMsgs(); }
         else if(S.detached){ if(!mine) S.awayCount++; updateJump(); }
         else {
           const row={...m, rx:{}}; await hydrate([row]);
@@ -2251,13 +2749,14 @@ function subscribe(){
       bumpConv(m);
       if(m.kind==="system") reloadConvs();
     })
-    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_messages"},({new:m})=>{ const ex=S.msgs.find(x=>x.id===m.id); if(ex){ ex.content=m.content; ex.edited_at=m.edited_at; renderMsgs(); } })
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_messages"},async ({new:m})=>{ const ex=S.msgs.find(x=>x.id===m.id); if(!ex) return; if(m.cipher){ if(ex.cipher!==m.cipher){ ex.cipher=m.cipher; ex._dec=null; await openRow(ex); } } else ex.content=m.content; ex.edited_at=m.edited_at; renderMsgs(); })
     .on("postgres_changes",{event:"DELETE",schema:"public",table:"bt_messages"},({old})=>{ if(old?.id && S.msgs.some(x=>x.id===old.id)){ S.msgs=S.msgs.filter(x=>x.id!==old.id); renderMsgs(); } if(S.pins.some(p=>p.message_id===old?.id)){ S.pins=S.pins.filter(p=>p.message_id!==old.id); renderPinned(); } })
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_reactions"},({new:r})=>{ const m=S.msgs.find(x=>x.id===r.message_id); if(m){ addRx(m,r.emoji,r.user_id); renderMsgs(); } })
     .on("postgres_changes",{event:"DELETE",schema:"public",table:"bt_reactions"},({old:r})=>{ const m=S.msgs.find(x=>x.id===r?.message_id); if(m){ delRx(m,r.emoji,r.user_id); renderMsgs(); } })
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_poll_votes"},({new:v})=>{ const l=S.votes[v.poll_id] ||= []; if(!l.some(x=>x.user_id===v.user_id && x.option_idx===v.option_idx)){ l.push(v); if(S.msgs.some(x=>x.id===v.poll_id)) renderMsgs(); } })
     .on("postgres_changes",{event:"DELETE",schema:"public",table:"bt_poll_votes"},({old:v})=>{ if(!S.votes[v?.poll_id]) return; S.votes[v.poll_id]=S.votes[v.poll_id].filter(x=>!(x.user_id===v.user_id && x.option_idx===v.option_idx)); if(S.msgs.some(x=>x.id===v.poll_id)) renderMsgs(); })
     .on("postgres_changes",{event:"INSERT",schema:"public",table:"bt_polls"},({new:p})=>{ S.polls[p.message_id]=p; if(S.msgs.some(x=>x.id===p.message_id)) renderMsgs(); })
+    .on("postgres_changes",{event:"*",schema:"public",table:"bt_todos"},(e)=>{ const cid=(e.new||e.old)?.conversation_id; if(cid && cid===S.cur) loadTodos(cid); })
     .on("postgres_changes",{event:"*",schema:"public",table:"bt_pins"},(e)=>{ const cid=(e.new||e.old)?.conversation_id; if(cid && cid===S.cur) loadPins(cid); })
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"bt_members"},({new:m})=>{
       const c=S.convs.find(x=>x.id===m.conversation_id); const ex=c?.bt_members.find(x=>x.user_id===m.user_id);
@@ -2308,7 +2807,7 @@ function touchSeen(){ if(!S.me || S.offline) return; sb.from("bt_profiles").upda
 
 /* ================= calls (1:1 voice + video) ================= */
 const ICE=[{ urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302","stun:stun.cloudflare.com:3478"] }];
-const C={ call:null, role:null, pc:null, ch:null, local:null, remote:null, video:false, muted:false, camOff:false, remoteCamOff:false, facing:"user", startedAt:null, timers:[], pendingIce:[], tone:null, peer:null, state:null, wantReady:false, readyTimer:null };
+const C={ call:null, role:null, pc:null, ch:null, local:null, remote:null, screen:null, remoteScreen:false, video:false, muted:false, camOff:false, remoteCamOff:false, facing:"user", startedAt:null, timers:[], pendingIce:[], tone:null, peer:null, state:null, wantReady:false, readyTimer:null };
 function buildCallUI(){
   const ui=$("callUI"); if(ui.dataset.built) return; ui.dataset.built="1";
   ui.append(h("video",{id:"remoteVideo",autoplay:true,playsInline:true,muted:true}), h("video",{id:"localVideo",autoplay:true,playsInline:true,muted:true}), h("audio",{id:"remoteAudio",autoplay:true}), h("div",{className:"call-info",id:"callInfo"}), h("div",{className:"call-btns",id:"callBtns"}));
@@ -2326,7 +2825,8 @@ function showCall(state){
   const ui=$("callUI"); ui.hidden=false;
   ui.classList.toggle("video", C.video); ui.classList.toggle("live", state==="active");
   ui.classList.toggle("cam-off", C.camOff); ui.classList.toggle("remote-off", C.remoteCamOff);
-  const live=state==="active" && C.video;
+  ui.classList.toggle("screen", !!C.remoteScreen && state==="active"); ui.classList.toggle("sharing", !!C.screen);
+  const live=state==="active" && (C.video || C.remoteScreen);
   const info=$("callInfo"); info.replaceChildren(h("span",{className:state==="active"?"":"pulse"}, avatar(C.peer, live?36:112)), h("div",{}, h("h2",{textContent:nameOf(C.peer)}), h("div",{className:"st",id:"callStatus",textContent:callStatusText()})));
   const btns=$("callBtns"); btns.replaceChildren();
   const B=(icon,label,cls,fn)=>{ const b=h("button",{className:cls||"",type:"button","aria-label":label}, svg(icon)); b.onclick=fn; return h("label",{}, b, label); };
@@ -2336,7 +2836,8 @@ function showCall(state){
     btns.append(B("i-phone",C.video?"Audio only":"Accept","green",()=>acceptCall(false)));
   } else {
     btns.append(B(C.muted?"i-mic-off":"i-mic", C.muted?"Unmute":"Mute", C.muted?"on":"", toggleMute));
-    if(C.video && C.local?.getVideoTracks().length){ btns.append(B(C.camOff?"i-video-off":"i-video", C.camOff?"Camera on":"Camera off", C.camOff?"on":"", toggleCam), B("i-flip","Flip","",flipCam)); }
+    if(C.video && C.local?.getVideoTracks().length){ btns.append(B(C.camOff?"i-video-off":"i-video", C.camOff?"Camera on":"Camera off", C.camOff?"on":"", toggleCam)); if(!C.screen) btns.append(B("i-flip","Flip","",flipCam)); }
+    if(canShareScreen() && state==="active") btns.append(B("i-screen", C.screen?"Stop sharing":"Share screen", C.screen?"on":"", toggleScreen));
     btns.append(B("i-hangup","End","red",()=>endCall()));
   }
   const lv=$("localVideo"); if(C.local && lv.srcObject!==C.local) lv.srcObject=C.local;
@@ -2384,10 +2885,13 @@ function sendReady(){
 function makePC(){
   const pc=new RTCPeerConnection({ iceServers:ICE });
   C.local.getTracks().forEach(t=>pc.addTrack(t,C.local));
+  // voice calls still get an empty video slot so either side can share their screen later
+  if(!C.local.getVideoTracks().length && C.role==="caller") pc.addTransceiver("video",{ direction:"sendrecv", streams:[C.local] });
   pc.onicecandidate=(e)=>{ if(e.candidate) sendSig({ type:"ice", candidate:e.candidate.toJSON() }); };
   pc.ontrack=(e)=>{
-    C.remote=e.streams[0]||new MediaStream([e.track]);
-    const rv=$("remoteVideo"), ra=$("remoteAudio"); rv.srcObject=C.remote; ra.srcObject=C.remote;
+    C.remote ||= new MediaStream();
+    if(!C.remote.getTracks().includes(e.track)) C.remote.addTrack(e.track);
+    const rv=$("remoteVideo"), ra=$("remoteAudio"); if(rv.srcObject!==C.remote){ rv.srcObject=C.remote; ra.srcObject=C.remote; }
     rv.play?.().catch(()=>{}); ra.play?.().catch(()=>{});
   };
   pc.onconnectionstatechange=()=>{
@@ -2405,13 +2909,16 @@ async function onSignal(p){
     if(C.state==="outgoing"){ stopTone(); showCall("connecting"); }
   } else if(p.type==="offer" && C.role==="callee"){
     if(!C.pc) C.pc=makePC();
-    await C.pc.setRemoteDescription(p.sdp); const ans=await C.pc.createAnswer(); await C.pc.setLocalDescription(ans);
+    await C.pc.setRemoteDescription(p.sdp);
+    for(const t of C.pc.getTransceivers()) if(t.receiver.track?.kind==="video" && !t.sender.track) t.direction="sendrecv";
+    const ans=await C.pc.createAnswer(); await C.pc.setLocalDescription(ans);
     sendSig({ type:"answer", sdp:ans }); flushIce(); clearInterval(C.readyTimer);
   } else if(p.type==="answer" && C.role==="caller" && C.pc && !C.pc.remoteDescription){
     await C.pc.setRemoteDescription(p.sdp); flushIce();
   } else if(p.type==="ice"){
     if(C.pc?.remoteDescription) C.pc.addIceCandidate(p.candidate).catch(()=>{}); else C.pendingIce.push(p.candidate);
   } else if(p.type==="cam"){ C.remoteCamOff=!p.on; showCall(C.state); }
+  else if(p.type==="screen"){ C.remoteScreen=!!p.on; showCall(C.state); if(p.on) $("remoteVideo")?.play?.().catch(()=>{}); }
   else if(p.type==="bye"){ cleanupCall(); }
 }
 function onCallInsert(c){
@@ -2457,8 +2964,9 @@ function cleanupCall(){
   stopTone(); C.timers.forEach(t=>{ clearTimeout(t); clearInterval(t); }); C.timers=[]; clearInterval(C.readyTimer);
   try{ C.pc?.close(); }catch{}
   C.local?.getTracks().forEach(t=>t.stop());
+  C.screen?.getTracks().forEach(t=>t.stop());
   if(C.ch) sb.removeChannel(C.ch);
-  Object.assign(C,{ call:null, role:null, pc:null, ch:null, local:null, remote:null, startedAt:null, pendingIce:[], state:null, wantReady:false, peer:null });
+  Object.assign(C,{ screen:null, remoteScreen:false, call:null, role:null, pc:null, ch:null, local:null, remote:null, startedAt:null, pendingIce:[], state:null, wantReady:false, peer:null });
   const ui=$("callUI"); ui.hidden=true;
   for(const id of ["remoteVideo","localVideo","remoteAudio"]){ const el=$(id); if(el) el.srcObject=null; }
 }
@@ -2473,10 +2981,32 @@ async function flipCam(){
   try{
     const ns=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:C.facing } });
     const nt=ns.getVideoTracks()[0]; const old=C.local.getVideoTracks()[0];
-    const sender=C.pc?.getSenders().find(s=>s.track?.kind==="video"); if(sender) await sender.replaceTrack(nt);
+    const sender=videoSender(); if(sender && !C.screen) await sender.replaceTrack(nt);
     C.local.removeTrack(old); old.stop(); C.local.addTrack(nt); nt.enabled=!C.camOff;
     $("localVideo").srcObject=null; $("localVideo").srcObject=C.local;
   }catch{ toast("Couldn't switch camera"); }
+}
+const canShareScreen = () => !!navigator.mediaDevices?.getDisplayMedia && !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+function videoSender(){
+  const t=C.pc?.getTransceivers().find(t=>t.sender.track?.kind==="video" || t.receiver.track?.kind==="video");
+  return t?.sender || null;
+}
+async function toggleScreen(){
+  if(C.screen) return stopScreen();
+  const sender=videoSender(); if(!sender){ toast("Screen sharing needs both of you on the latest version"); return; }
+  let st; try{ st=await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:{ ideal:15, max:30 } }, audio:false }); }catch{ return; }
+  if(!C.call){ st.getTracks().forEach(t=>t.stop()); return; }
+  const tr=st.getVideoTracks()[0]; try{ tr.contentHint="detail"; }catch{}
+  try{ await sender.replaceTrack(tr); }catch{ st.getTracks().forEach(t=>t.stop()); toast("Couldn't share your screen"); return; }
+  C.screen=st; tr.onended=()=>{ if(C.screen===st) stopScreen(); };
+  sendSig({ type:"screen", on:true }); showCall(C.state); toast("You're sharing your screen");
+}
+async function stopScreen(){
+  const st=C.screen; if(!st) return; C.screen=null;
+  const cam=C.local?.getVideoTracks()[0]||null;
+  try{ await videoSender()?.replaceTrack(cam); }catch{}
+  st.getTracks().forEach(t=>t.stop());
+  sendSig({ type:"screen", on:false }); if(C.state) showCall(C.state);
 }
 
 /* ================= group voice rooms ================= */
@@ -2612,12 +3142,13 @@ window.addEventListener("offline",()=>setOffline(true));
 /* ================= deep links ================= */
 function readDeepLink(){
   const q=new URLSearchParams(location.search);
-  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab"), dm:q.get("dm"), call:q.get("call") };
-  if(d.join||d.add||d.c||d.tab||d.dm||d.call){ S.deep=d; history.replaceState(null,"",BASE); }
+  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab"), dm:q.get("dm"), call:q.get("call"), xbl: q.has("xbl") ? (q.get("code")||"") : null };
+  if(d.join||d.add||d.c||d.tab||d.dm||d.call||d.xbl!==null){ S.deep=d; history.replaceState(null,"",BASE); }
 }
 async function handleDeepLink(){
   const d=S.deep; S.deep=null; if(!d) return;
   if(d.tab==="friends") setTab("friends");
+  if(d.xbl!==null) finishXboxLink(d.xbl);
   if(d.c && S.convs.some(c=>c.id===d.c)) openConv(d.c);
   if(d.join && /^[a-z0-9]{6,32}$/i.test(d.join)) joinPreview(d.join.toLowerCase());
   if(d.dm && /^[0-9a-f-]{36}$/.test(d.dm) && isFriend(d.dm)) openDM(d.dm);
@@ -2632,7 +3163,7 @@ navigator.serviceWorker?.addEventListener("message",(e)=>{ if(e.data?.type==="op
 /* ================= boot ================= */
 async function enter(){
   if(!S.me.email_confirmed_at){ const email=S.me.email; await sb.auth.signOut(); showMail(email); return; }
-  S.outbox=store(ukey("bt-outbox"))||[]; S.drafts=store(ukey("bt-drafts"))||{};
+  S.outbox=store(ukey("bt-outbox"))||[]; S.drafts=store(ukey("bt-drafts"))||{}; S.plainPrev=store(ukey("bt-prev"))||{};
   const cached=store(ukey("bt-cache"));
   if(cached?.profile && !navigator.onLine){
     S.profile=S.P[S.me.id]=cached.profile; loadCache();
@@ -2652,7 +3183,10 @@ async function enter(){
   S.profile=S.P[prof.id]=prof;
   if(loadCache()){ S.P[prof.id]=prof; }
   show("app"); renderMe(); setTab(S.deep?.tab==="friends"?"friends":"chats"); renderChats(); renderBadges();
+  const pw=S.pendingPw; S.pendingPw=null;
+  const e2eReady=initE2E(pw);
   try{ await Promise.all([loadSocial(), loadConvs()]); setOffline(false); }catch{ setOffline(true); }
+  await e2eReady.catch(()=>{});
   if(!S.rt) subscribe();
   if(!S.pres) subscribePresence();
   flushOutbox();
@@ -2661,6 +3195,8 @@ async function enter(){
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 function leave(){
+  if(S.me?.id) kdel("k-"+S.me.id);
+  Object.assign(E,{ key:null, state:"off", peers:{}, shared:{}, files:{} });
   try{ if(C.call) cleanupCall(); if(R.joined) leaveRoom(); Object.keys(R.chans).forEach(dropRoomChannel); }catch{}
   S.rt && sb.removeChannel(S.rt); S.pres && sb.removeChannel(S.pres); clearInterval(seenTimer);
   Object.assign(S,{ me:null, profile:null, P:{}, nick:{}, blocks:new Set(), friendships:[], convs:[], unread:{}, mentions:{}, cur:null, msgs:[], peers:{}, rt:null, pres:null, subscribedOnce:false, outbox:[], drafts:{} });

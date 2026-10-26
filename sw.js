@@ -1,6 +1,6 @@
-const CACHE = "bt-shell-3014523";
+const CACHE = "bt-shell-3015757";
 const SHELL = [
-  "./", "./index.html", "./app.js?v=3014523", "./app.css?v=3014523", "./manifest.webmanifest",
+  "./", "./index.html", "./app.js?v=3015757", "./app.css?v=3015757", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
