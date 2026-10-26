@@ -1,5 +1,6 @@
 (() => {
 "use strict";
+if(window.BT_GATED) return; // computer, or a phone browser tab: gate.js shows the install page instead
 const SUPABASE_URL = "https://zrslvneipbgtivhlygfd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_3M5msWhxHlC7cOfY5X4NeQ_Lbc1bR3f";
 const VAPID_PUBLIC = "BLgsV3h4QeDmlsulruH0VsGcfGeje7XBq1cdWxzYo9gSgWejPcjz4fxKUF--fq_DhKTNnP1gG_x04GJ9z842WSQ";
@@ -348,7 +349,9 @@ function newPasswordSheet(){
       if(inp.value.length<6){ err.textContent="Passwords need at least 6 characters."; return; }
       go.disabled=true; const { error } = await sb.auth.updateUser({ password:inp.value }); go.disabled=false;
       if(error){ err.textContent=friendlyErr(error,"Couldn't save the password. Try again."); return; }
-      e2eRewrap(inp.value); closeSheet(); toast("Password updated");
+      await e2eRewrap(inp.value);
+      if(!window.BT_ALLOWED_HERE){ await sb.auth.signOut(); location.replace(BASE+"#reset-done"); location.reload(); return; }
+      closeSheet(); toast("Password updated");
     };
     b.append(h("h2",{textContent:"Choose a new password"}), h("label",{className:"lbl",htmlFor:"newPass",textContent:"New password"}), inp, err, go);
   });
@@ -1009,7 +1012,7 @@ async function downloadMedia(m, name){
     setTimeout(()=>URL.revokeObjectURL(url), 60e3);
   }catch{ toast("Couldn't get that file"); }
 }
-function e2eRewrap(pw){ (E.key ? saveBackup(pw) : initE2E(pw)).catch(()=>{}); }
+function e2eRewrap(pw){ return (E.key ? saveBackup(pw) : initE2E(pw)).catch(()=>{}); }
 function unlockSheet(){
   openSheet(b=>{
     const pw=h("input",{className:"input",id:"unlockPw",type:"password",autocomplete:"current-password"});

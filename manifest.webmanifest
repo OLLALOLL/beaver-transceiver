@@ -1,15 +1,35 @@
 {
   "name": "Beaver Transceiver",
   "short_name": "Beaver",
-  "description": "Group chat with channels, live messages and reactions.",
+  "description": "Chat with friends: DMs, groups, calls and voice rooms.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0f1918",
-  "theme_color": "#0f1918",
+  "background_color": "#111418",
+  "theme_color": "#111418",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "./",
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://ollaloll.github.io/beaver-transceiver/manifest.webmanifest"
+    }
   ]
 }

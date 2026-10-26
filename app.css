@@ -589,3 +589,23 @@ body[data-view="chat"] .room-pill{bottom:calc(84px + var(--sab))}
 .todo-x svg{width:16px;height:16px}
 .todo-head{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:.74rem;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
 .todo-head .link{text-transform:none;letter-spacing:0;padding:4px 0}
+
+/* ---------- install gate ---------- */
+.gate{z-index:40}
+.gate-card{display:flex;flex-direction:column;gap:12px}
+.gate-card .btn{margin-top:0;display:grid;place-items:center;text-decoration:none}
+.gate-card .qr{margin:4px auto 0}
+.gate-h{margin:4px 0 0;font-size:1.05rem;font-weight:700}
+.gate-small{margin:0;color:var(--muted);font-size:.9rem;line-height:1.45}
+.gate-list{margin:0;padding:0;list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:10px}
+.gate-list li{counter-increment:s;display:flex;align-items:center;gap:12px;line-height:1.4;font-size:.95rem}
+.gate-list li::before{content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:.85rem;display:grid;place-items:center;flex:none}
+.gate-share{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:7px;background:var(--panel);vertical-align:middle;margin:0 2px}
+.gate-share svg{width:16px;height:16px;color:#0a84ff}
+.gate-note{background:var(--panel);border-radius:var(--r-md);padding:12px 14px;font-size:.9rem;line-height:1.45;color:var(--muted)}
+.gate-note.good{background:color-mix(in srgb,var(--ok) 13%,var(--surface));color:var(--fg)}
+.gate-open{display:flex;flex-direction:column;gap:10px}
+.gate-open:empty{display:none}
+.gate-invite{display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:var(--r-md);padding:10px 10px 10px 14px}
+.gate-invite small{display:block;font-size:.72rem;color:var(--muted);font-weight:600}
+.gate-invite code{flex:1;font-family:var(--f-mono);font-size:1rem}
