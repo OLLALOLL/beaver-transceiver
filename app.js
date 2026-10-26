@@ -2448,6 +2448,7 @@ $("avatarBtn").onclick=()=>{
   openSheet(b=>{
     b.append(h("h2",{textContent:"Profile picture"}));
     const menu=h("div",{className:"menu"});
+    if(S.profile.avatar_url) menu.append(menuBtn("✏️  Adjust current picture",()=>{ closeSheet(); editProfileImage("avatar_url"); }));
     menu.append(menuBtn("📷  Choose a new picture",()=>{ closeSheet(); $("avatarFile").click(); }));
     if(S.profile.avatar_url) menu.append(menuBtn("🗑️  Remove picture",async()=>{ closeSheet(); await setProfileImage("avatar_url",null); },{ danger:true }));
     b.append(menu);
@@ -2459,24 +2460,42 @@ $("bannerBtn").onclick=(e)=>{
   openSheet(b=>{
     b.append(h("h2",{textContent:"Profile banner"}), h("p",{className:"sub",textContent:"A wide image shown at the top of your profile."}));
     const menu=h("div",{className:"menu"});
-    menu.append(menuBtn("🖼️  Choose a banner",()=>{ closeSheet(); $("bannerFile").click(); }));
+    if(S.profile.banner_url) menu.append(menuBtn("✏️  Adjust current banner",()=>{ closeSheet(); editProfileImage("banner_url"); }));
+    menu.append(menuBtn(S.profile.banner_url ? "🖼️  Choose a new banner" : "🖼️  Choose a banner",()=>{ closeSheet(); $("bannerFile").click(); }));
     if(S.profile.banner_url) menu.append(menuBtn("🗑️  Remove banner",async()=>{ closeSheet(); await setProfileImage("banner_url",null); },{ danger:true }));
     b.append(menu);
   });
 };
 $("avatarFile").addEventListener("change", async ()=>{ const f=$("avatarFile").files[0]; $("avatarFile").value=""; if(f) uploadProfileImage(f,"avatar_url"); });
 $("bannerFile").addEventListener("change", async ()=>{ const f=$("bannerFile").files[0]; $("bannerFile").value=""; if(f) uploadProfileImage(f,"banner_url"); });
-async function uploadProfileImage(file, field){
+// the full uploaded picture is kept next to the cropped one ("…-orig") so it can be re-cropped later
+const origOf = (url) => url ? url.replace(/\.(webp|jpg|png)(\?.*)?$/, "-orig") : null;
+async function uploadProfileImage(file, field, original){
   if(!file.type.startsWith("image/")){ toast("Pick an image file"); return; }
   const blob = await cropSheet(file, field==="avatar_url" ? { w:400, h:400, round:true, title:"Profile picture" } : { w:1500, h:500, title:"Banner" });
   if(!blob) return;
   toast("Uploading…");
   try{
-    const path=`${S.me.id}/${field==="avatar_url"?"av":"banner"}-${Date.now()}.${blob.type==="image/webp"?"webp":"jpg"}`;
-    const { error:up } = await sb.storage.from("bt-avatars").upload(path, blob, { contentType:blob.type, cacheControl:"31536000" });
+    let orig=original;
+    if(!orig){ try{ orig=(await resizeImage(file,2000)).blob; }catch{} }
+    const ext = (b) => b.type==="image/webp" ? "webp" : "jpg";
+    const stem=`${S.me.id}/${field==="avatar_url"?"av":"banner"}-${Date.now()}`;
+    const { error:up } = await sb.storage.from("bt-avatars").upload(`${stem}.${ext(blob)}`, blob, { contentType:blob.type, cacheControl:"31536000" });
     if(up) throw up;
-    await setProfileImage(field, sb.storage.from("bt-avatars").getPublicUrl(path).data.publicUrl);
+    if(orig) await sb.storage.from("bt-avatars").upload(`${stem}-orig.${ext(orig)}`, orig, { contentType:orig.type, cacheControl:"31536000" }).catch(()=>{});
+    await setProfileImage(field, sb.storage.from("bt-avatars").getPublicUrl(`${stem}.${ext(blob)}`).data.publicUrl);
   }catch{ toast("Couldn't upload that picture. Try a different one."); }
+}
+async function editProfileImage(field){
+  const cur=S.profile[field]; if(!cur) return;
+  toast("Opening…");
+  let blob=null;
+  for(const u of [origOf(cur)+".webp", origOf(cur)+".jpg", cur]){
+    try{ const r=await fetch(u,{ cache:"no-store" }); if(r.ok){ const b=await r.blob(); if(b.type.startsWith("image/")){ blob=b; break; } } }catch{}
+  }
+  if(!blob){ toast("Couldn't open your current picture"); return; }
+  const file=new File([blob], "current."+(blob.type.split("/")[1]||"jpg"), { type:blob.type });
+  uploadProfileImage(file, field, blob);
 }
 async function setProfileImage(field, url){
   const old=S.profile[field];
@@ -2484,7 +2503,8 @@ async function setProfileImage(field, url){
   if(error){ toast("Couldn't save that"); return; }
   S.profile=S.P[S.me.id]=data; renderMe(); renderChats();
   toast(url ? (field==="avatar_url"?"Profile picture updated":"Banner updated") : "Removed");
-  const m=old && old.match(/\/bt-avatars\/([0-9a-f-]{36}\/.+)$/); if(m) sb.storage.from("bt-avatars").remove([m[1]]).then(()=>{});
+  const m=old && old.match(/\/bt-avatars\/([0-9a-f-]{36}\/[^?]+?)\.(webp|jpg|png)$/);
+  if(m) sb.storage.from("bt-avatars").remove([`${m[1]}.${m[2]}`, `${m[1]}-orig.webp`, `${m[1]}-orig.jpg`]).then(()=>{});
 }
 function renderSettings(){
   const box=$("settingsList"); box.replaceChildren();
