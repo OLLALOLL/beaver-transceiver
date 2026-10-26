@@ -2552,17 +2552,43 @@ async function notificationsSheet(){
 }
 async function swReg(){ if(!("serviceWorker" in navigator)) return null; return navigator.serviceWorker.getRegistration() .then(r=>r||navigator.serviceWorker.register("sw.js")); }
 function b64ToBytes(s){ const pad="=".repeat((4-s.length%4)%4); const raw=atob((s+pad).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(raw,c=>c.charCodeAt(0)); }
-async function enablePush(){
+async function enablePush(quiet){
   try{
     const perm=await Notification.requestPermission();
-    if(perm!=="granted"){ toast("Notifications are blocked. Allow them in your browser settings."); return false; }
+    if(perm!=="granted"){ if(!quiet) toast("Notifications are blocked. Allow them in your browser settings."); return false; }
     const reg=await swReg(); await navigator.serviceWorker.ready;
     const sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToBytes(VAPID_PUBLIC) });
     const j=sub.toJSON();
     const { error } = await sb.from("bt_push_subs").insert({ endpoint:j.endpoint, user_id:S.me.id, p256dh:j.keys.p256dh, auth:j.keys.auth });
     if(error && !/duplicate/i.test(error.message)) throw error;
-    toast("Push notifications on"); return true;
-  }catch{ toast("Couldn't turn on notifications on this device"); return false; }
+    toast("Notifications on"); return true;
+  }catch{ if(!quiet) toast("Couldn't turn on notifications on this device"); return false; }
+}
+// ask for notifications as soon as someone is in the app
+async function autoPush(){
+  if(!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) return;
+  const perm=Notification.permission;
+  if(perm==="denied") return;
+  if(perm==="granted"){
+    try{
+      const reg=await swReg(); await navigator.serviceWorker.ready;
+      const sub=await reg.pushManager.getSubscription();
+      if(!sub){ enablePush(true); return; }
+      const j=sub.toJSON(); await sb.from("bt_push_subs").insert({ endpoint:j.endpoint, user_id:S.me.id, p256dh:j.keys.p256dh, auth:j.keys.auth });
+    }catch{}
+    return;
+  }
+  const iOS=/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1);
+  if(!iOS){ await enablePush(true); if(Notification.permission!=="default") return; }
+  // iPhone only shows the question after a tap, so give them one big button
+  if($("sheet").classList.contains("show")) return;
+  openSheet(b=>{
+    const go=h("button",{className:"btn",textContent:"Turn on notifications"});
+    go.onclick=async()=>{ go.disabled=true; await enablePush(); closeSheet(); };
+    const later=h("button",{className:"btn ghost",textContent:"Not now"}); later.onclick=closeSheet;
+    b.append(h("div",{className:"big-icon"}, svg("i-bell")), h("h2",{textContent:"Get notified",style:"text-align:center"}),
+      h("p",{className:"sub",style:"text-align:center",textContent:"Know when friends message you, call you or send a friend request, even when Beaver Transceiver is closed."}), go, later);
+  });
 }
 async function disablePush(){
   try{
@@ -3196,6 +3222,7 @@ async function enter(){
   touchSeen(); clearInterval(seenTimer); seenTimer=setInterval(()=>{ if(!document.hidden) touchSeen(); }, 120e3);
   handleDeepLink();
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+  setTimeout(()=>{ if(S.me) autoPush(); }, 800);
 }
 function leave(){
   if(S.me?.id) kdel("k-"+S.me.id);
