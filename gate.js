@@ -2,7 +2,7 @@
    - Computer: a "this is a phone app" page with a QR code.
    - Phone browser: install steps (or "you already have it, open it").
    - Installed app: carries on into app.js.
-   A few links must still work in a browser tab: password reset links and the Xbox sign-in return. */
+   A few links must still work in a browser tab: password reset links. */
 (() => {
   "use strict";
   const ua = navigator.userAgent;
@@ -19,7 +19,7 @@
   window.BT_ALLOWED_HERE = allowed;
   try { if (allowed) localStorage.setItem("bt-installed", "1"); } catch {}
   // links that have to finish in whatever tab they opened in
-  const passThrough = /type=recovery/.test(hash) || q.has("xbl");
+  const passThrough = /type=recovery/.test(hash);
   if (allowed || passThrough) return;
 
   window.BT_GATED = true;

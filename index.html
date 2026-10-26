@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<link rel="stylesheet" href="app.css?v=3018272">
+<link rel="stylesheet" href="app.css?v=3019160">
 <script>
 try{
   var t=localStorage.getItem("bt-theme"); if(t==="light"||t==="dark") document.documentElement.dataset.theme=t;
@@ -214,7 +214,6 @@ try{
           <input type="file" id="bannerFile" accept="image/*" hidden>
           <h2 id="meDisplay"></h2>
           <div class="handle" id="meHandle"></div>
-          <div class="status-line" id="meStatus"></div>
           <button class="activity-btn" id="activityBtn" type="button"></button>
           <div class="hint" id="meJoined"></div>
         </div>
@@ -226,8 +225,6 @@ try{
           <div class="hint" id="cooldownHint"></div>
           <label class="lbl" for="mePronounsIn">Pronouns</label>
           <input class="input" id="mePronounsIn" maxlength="30" placeholder="e.g. he/him, she/her, they/them">
-          <label class="lbl" for="meStatusIn">Status <em id="statusCount"></em></label>
-          <input class="input" id="meStatusIn" maxlength="60" placeholder="e.g. Playing Minecraft">
           <label class="lbl" for="meBioIn">Bio <em id="bioCount"></em></label>
           <textarea class="input" id="meBioIn" maxlength="160" rows="3" placeholder="A line or two about you"></textarea>
           <label class="lbl" for="meBdayIn">Birthday <em>Only friends can see it</em></label>
@@ -297,10 +294,10 @@ try{
 <div class="room-pill" id="roomPill" hidden></div>
 <div class="toast" id="toast" role="status"></div>
 
-<script src="gate.js?v=3018272"></script>
+<script src="gate.js?v=3019160"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
-<script src="app.js?v=3018272"></script>
+<script src="app.js?v=3019160"></script>
 </body>
 </html>

@@ -544,10 +544,6 @@ body[data-view="chat"] .room-pill{bottom:calc(84px + var(--sab))}
 .activity span{display:flex;flex-direction:column;align-items:flex-start;text-align:left;line-height:1.25}
 .activity span b{font-weight:600}
 .activity span small{font-weight:500;color:var(--muted);font-size:.78rem}
-.activity.xbox svg{color:#107c10}
-:root[data-theme="dark"] .activity.xbox svg{color:#3fbf3f}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .activity.xbox svg{color:#3fbf3f}}
-.chip.xbox-chip svg{color:#107c10}
 
 /* ---------- screen sharing ---------- */
 .call-ui.screen video#remoteVideo{display:block!important;opacity:1!important;object-fit:contain;background:#000}

@@ -385,14 +385,7 @@ const isFriend = (uid) => friendRow(uid)?.status==="accepted";
 const friendIds = () => S.friendships.filter(f=>f.status==="accepted").map(otherOf);
 const isOnline = (uid) => !!S.peers[uid] && uid!==S.me?.id;
 const ACT_TYPES=[["playing","Playing","i-game"],["listening","Listening to","i-headset"],["watching","Watching","i-video"],["building","Building","i-edit"],["working","Working on","i-devices"]];
-function xboxNow(uid){
-  const x=S.P[uid]?.xbox; if(!x || !x.show || !x.on || !x.game) return null;
-  if(x.at && Date.now()-Date.parse(x.at) > 20*60*1000) return null; // stale
-  return x;
-}
 function activityOf(uid){
-  const x=xboxNow(uid);
-  if(x) return { label:"Playing "+x.game, icon:"i-game", xbox:true, detail:[x.detail, x.device?"on "+x.device:""].filter(Boolean).join(" · ") };
   const a=S.P[uid]?.activity; if(!a || !a.text) return null;
   if(a.until && Date.parse(a.until)<Date.now()) return null;
   const t=ACT_TYPES.find(x=>x[0]===a.type)||ACT_TYPES[0];
@@ -453,7 +446,7 @@ function renderFriends(){
     const rows=h("div",{className:"rows"});
     for(const uid of friends){
       const msg=h("button",{className:"pill",textContent:"Message"}); msg.onclick=(e)=>{ e.stopPropagation(); openDM(uid); };
-      const st=activityOf(uid)?.label || S.P[uid]?.status;
+      const st=activityOf(uid)?.label;
       rows.append(personRow(uid, st || presenceText(uid), h("span",{className:"actions"},msg)));
     }
     box.append(rows);
@@ -752,7 +745,7 @@ function renderChatHead(){
   const c=curConv(); if(!c) return;
   const head=$("chatHead"); head.replaceChildren();
   let subText, on=false;
-  if(c.kind==="dm"){ const o=dmOther(c); on=isOnline(o); subText = S.P[o]?.status && !on ? S.P[o].status : presenceText(o); }
+  if(c.kind==="dm"){ const o=dmOther(c); on=isOnline(o); subText = presenceText(o); }
   else { const n=c.bt_members.length; const online=c.bt_members.filter(m=>m.user_id!==S.me.id && isOnline(m.user_id)).length; subText = n+" members"+(online?` · ${online} online`:""); }
   const title=h("b",{textContent:convName(c)});
   if(c.kind==="dm"){
@@ -1998,10 +1991,8 @@ async function openProfile(uid){
     if(S.nick[uid]) top.append(h("div",{className:"real",textContent:p.display_name}));
     top.append(h("div",{className:"handle"}, "@"+p.username, p.pronouns ? h("span",{className:"pron",textContent:" · "+p.pronouns}) : null), h("div",{className:"status"+(on?" on":""),textContent:presenceText(uid)}));
     const act=activityLine(uid); if(act) top.append(act);
-    if(p.status) top.append(h("div",{className:"custom",textContent:p.status}));
     if(p.bio) top.append(h("p",{className:"bio",textContent:p.bio}));
     const lk=linkChips(p.links);
-    if(p.xbox?.gt){ const gt=h("span",{className:"chip xbox-chip"}, svg("i-game"), p.xbox.gt); if(lk) lk.prepend(gt); else top.append(h("div",{className:"chips"}, gt)); }
     if(lk) top.append(lk);
     const facts=h("div",{className:"facts"});
     facts.append(h("div",{className:"fact"},h("small",{textContent:"Joined"}),h("b",{textContent:longDate(p.created_at)})));
@@ -2264,7 +2255,6 @@ $("chatMenuBtn").onclick=()=>{
 /* ================= my profile + settings ================= */
 watchUsername($("meUserIn"), $("meUserNote"), ()=>S.profile?.username);
 $("meBioIn").addEventListener("input",()=>{ $("bioCount").textContent=$("meBioIn").value.length+"/160"; });
-$("meStatusIn").addEventListener("input",()=>{ $("statusCount").textContent=$("meStatusIn").value.length+"/60"; });
 const cooldownLeft = (ts, days) => ts ? Date.parse(ts)+days*864e5-Date.now() : 0;
 function renderMe(){
   const p=S.profile; if(!p) return;
@@ -2272,17 +2262,17 @@ function renderMe(){
   $("meBanner").style.backgroundImage = p.banner_url ? `url("${p.banner_url}")` : "";
   $("meDisplay").textContent=p.display_name; $("meHandle").textContent="@"+p.username+(p.pronouns?" · "+p.pronouns:"");
   const a=activityOf(S.me.id); $("activityBtn").replaceChildren(svg(a?.icon||"i-game"), a ? a.label : "Set an activity"); $("activityBtn").classList.toggle("set",!!a);
-  $("meStatus").textContent=p.status||""; $("meJoined").textContent="Joined "+longDate(p.created_at);
+  $("meJoined").textContent="Joined "+longDate(p.created_at);
   renderSettings();
 }
 function fillMeForm(){
   const p=S.profile; if(!p) return;
-  $("meDisplayIn").value=p.display_name; $("meUserIn").value=p.username; $("meBioIn").value=p.bio||""; $("meStatusIn").value=p.status||"";
+  $("meDisplayIn").value=p.display_name; $("meUserIn").value=p.username; $("meBioIn").value=p.bio||"";
   $("mePronounsIn").value=p.pronouns||"";
   const bd=S.bdays[S.me.id]; $("meBdayIn").value=bd?.birthday||""; $("meBdayYear").checked=!!bd?.show_year;
   $("meBdayIn").max=new Date().toISOString().slice(0,10);
   renderLinkEditor(p.links||[]);
-  $("bioCount").textContent=(p.bio||"").length+"/160"; $("statusCount").textContent=(p.status||"").length+"/60"; $("meUserNote").textContent=""; $("meErr").textContent="";
+  $("bioCount").textContent=(p.bio||"").length+"/160"; $("meUserNote").textContent=""; $("meErr").textContent="";
   const uLeft=cooldownLeft(p.username_changed_at,180), dLeft=cooldownLeft(p.display_name_changed_at,30);
   $("meUserIn").disabled=uLeft>0; $("meDisplayIn").disabled=dLeft>0;
   $("meDisplayNote").textContent = dLeft>0 ? "Change again "+longDate(Date.parse(p.display_name_changed_at)+30*864e5) : "Once every 30 days";
@@ -2291,13 +2281,13 @@ function fillMeForm(){
 }
 $("meForm").addEventListener("submit", async (e)=>{
   e.preventDefault();
-  const p=S.profile, d=$("meDisplayIn").value.trim(), u=$("meUserIn").value.trim(), bio=$("meBioIn").value.trim(), status=$("meStatusIn").value.trim(), err=$("meErr");
+  const p=S.profile, d=$("meDisplayIn").value.trim(), u=$("meUserIn").value.trim(), bio=$("meBioIn").value.trim(), err=$("meErr");
   err.textContent="";
   if(!d){ err.textContent="Enter a display name."; return; }
   if(!USER_RE.test(u)){ err.textContent="Usernames are 3–20 lowercase letters, numbers, dots or underscores."; return; }
   const links=[...$("meLinks").querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean);
   for(const u of links){ if(!/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(u)){ err.textContent="Links must start with https:// — check “"+u.slice(0,40)+"”."; return; } }
-  const patch={ bio, status, pronouns:$("mePronounsIn").value.trim(), links:links.map(url=>({ url })) };
+  const patch={ bio, pronouns:$("mePronounsIn").value.trim(), links:links.map(url=>({ url })) };
   if(d!==p.display_name) patch.display_name=d;
   if(u!==p.username){
     if(!(await usernameFree(u))){ err.textContent="That username is taken. Pick another."; return; }
@@ -2425,7 +2415,6 @@ function renderSettings(){
     menuBtn("🔔  Notifications & sounds",notificationsSheet),
     menuBtn("🔒  Privacy",privacySheet,{ right:{everyone:"Everyone",fof:"Friends of friends",nobody:"Nobody"}[S.profile?.add_policy||"everyone"] }),
     menuBtn("⛔  Blocked users",blockedSheet,{ right:String(S.blocks.size) }),
-    menuBtn("🎮  Xbox",xboxSheet,{ right: S.profile?.xbox?.gt || "Not linked" }),
     menuBtn("💻  Devices",devicesSheet),
     menuBtn("🔐  Email & password",accountSheet)
   );
@@ -2434,55 +2423,6 @@ function renderSettings(){
   const out=h("button",{className:"btn ghost",textContent:"Sign out"}); out.onclick=()=>sb.auth.signOut();
   const del=h("button",{className:"btn text-danger",textContent:"Delete my account"}); del.onclick=deleteAccountSheet;
   box.append(out, del, h("div",{className:"hint",style:"text-align:center",textContent:"Signed in as "+(S.me.email||"")}));
-}
-/* ---- Xbox activity ---- */
-async function xboxFn(body){
-  const { data:{ session } } = await sb.auth.getSession();
-  const res = await fetch(SUPABASE_URL+"/functions/v1/bt-xbox",{ method:"POST", headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+(session?.access_token||"") }, body:JSON.stringify(body) });
-  return res.json().catch(()=>({ error:"bad" }));
-}
-async function refreshMyProfile(){
-  const { data } = await sb.from("bt_profiles").select("*").eq("id",S.me.id).single();
-  if(data){ S.profile=S.P[S.me.id]=data; renderMe(); renderSettings(); }
-}
-async function finishXboxLink(code){
-  if(!code){ toast("Xbox linking was cancelled"); return; }
-  toast("Linking your Xbox account…");
-  try{
-    const r=await xboxFn({ action:"link", code });
-    if(r.ok){ await refreshMyProfile(); toast("Linked "+r.gamertag); }
-    else toast("Couldn't link your Xbox account. Try again.");
-  }catch{ toast("Couldn't link your Xbox account. Check your connection."); }
-}
-function xboxSheet(){
-  const x=S.profile?.xbox;
-  openSheet(b=>{
-    b.append(h("div",{className:"big-icon"}, svg("i-game")), h("h2",{textContent:"Xbox",style:"text-align:center"}));
-    if(!x?.gt){
-      b.append(h("p",{className:"sub",style:"text-align:center",textContent:"Link your Xbox account and your profile shows what you're playing, like Minecraft, automatically. Works for games on Xbox, PC, phone and Switch that use Xbox sign-in."}));
-      const go=h("button",{className:"btn",textContent:"Link Xbox account"}); b.append(go);
-      go.onclick=async()=>{
-        go.disabled=true; go.textContent="Opening…";
-        const c=await xboxFn({ action:"config" }).catch(()=>null);
-        if(!c?.enabled){ go.disabled=false; go.textContent="Link Xbox account"; toast("Xbox linking isn't switched on yet"); return; }
-        location.href=c.authUrl;
-      };
-      b.append(h("div",{className:"hint",style:"text-align:center",textContent:"You sign in with Microsoft on xbl.io. Beaver Transceiver never sees your password."}));
-      return;
-    }
-    b.append(h("p",{className:"sub",style:"text-align:center",textContent:"Linked as "+x.gt}));
-    const now=xboxNow(S.me.id);
-    b.append(h("div",{className:"fact wide",style:"margin-bottom:6px"}, h("small",{textContent:"Right now"}), h("b",{textContent: now ? "Playing "+now.game+(now.device?" on "+now.device:"") : x.show===false ? "Hidden" : x.on ? "Online on Xbox" : "Not playing"})));
-    const tg=h("label",{className:"toggle"}, h("span",{}, h("b",{textContent:"Show what I'm playing"}), h("small",{textContent:"Friends see the game on your profile. Updates every few minutes."})), h("input",{type:"checkbox",checked:x.show!==false}));
-    const cb=tg.querySelector("input");
-    cb.onchange=async()=>{ cb.disabled=true; await xboxFn({ action:"show", show:cb.checked }); await refreshMyProfile(); cb.disabled=false; };
-    b.append(tg);
-    const rf=h("button",{className:"btn ghost",textContent:"Check now"});
-    rf.onclick=async()=>{ rf.disabled=true; await xboxFn({ action:"refresh" }); await refreshMyProfile(); rf.disabled=false; closeSheet(); xboxSheet(); };
-    const un=h("button",{className:"btn text-danger",textContent:"Unlink Xbox"});
-    un.onclick=async()=>{ un.disabled=true; await xboxFn({ action:"unlink" }); await refreshMyProfile(); closeSheet(); toast("Xbox unlinked"); };
-    b.append(rf, un);
-  });
 }
 function myQr(){ qrSheet(`${BASE}?add=${S.profile.username}`, "Add me on Beaver Transceiver"); }
 $("myQrBtn2").onclick=myQr;
@@ -2804,7 +2744,7 @@ function subscribe(){
       if(!S.P[p.id]) return;
       const old=S.P[p.id]; S.P[p.id]=p;
       if(p.id===S.me.id){ S.profile=p; renderMe(); return; }
-      if(old.last_seen_at!==p.last_seen_at && old.display_name===p.display_name && old.avatar_url===p.avatar_url && old.status===p.status) { if(S.tab==="friends") renderFriends(); if(S.cur) renderChatHead(); return; }
+      if(old.last_seen_at!==p.last_seen_at && old.display_name===p.display_name && old.avatar_url===p.avatar_url) { if(S.tab==="friends") renderFriends(); if(S.cur) renderChatHead(); return; }
       renderAll();
     })
     .subscribe((status)=>{
@@ -3171,13 +3111,12 @@ window.addEventListener("offline",()=>setOffline(true));
 /* ================= deep links ================= */
 function readDeepLink(){
   const q=new URLSearchParams(location.search);
-  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab"), dm:q.get("dm"), call:q.get("call"), xbl: q.has("xbl") ? (q.get("code")||"") : null };
-  if(d.join||d.add||d.c||d.tab||d.dm||d.call||d.xbl!==null){ S.deep=d; history.replaceState(null,"",BASE); }
+  const d={ join:q.get("join"), add:q.get("add"), c:q.get("c"), tab:q.get("tab"), dm:q.get("dm"), call:q.get("call") };
+  if(d.join||d.add||d.c||d.tab||d.dm||d.call){ S.deep=d; history.replaceState(null,"",BASE); }
 }
 async function handleDeepLink(){
   const d=S.deep; S.deep=null; if(!d) return;
   if(d.tab==="friends") setTab("friends");
-  if(d.xbl!==null) finishXboxLink(d.xbl);
   if(d.c && S.convs.some(c=>c.id===d.c)) openConv(d.c);
   if(d.join && /^[a-z0-9]{6,32}$/i.test(d.join)) joinPreview(d.join.toLowerCase());
   if(d.dm && /^[0-9a-f-]{36}$/.test(d.dm) && isFriend(d.dm)) openDM(d.dm);
