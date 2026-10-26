@@ -104,14 +104,14 @@
       const manual = el("ol", { class: "gate-list" },
         el("li", {}, "Tap the ⋮ menu in the top corner of Chrome"),
         el("li", {}, "Choose “Install app” or “Add to Home screen”"),
-        el("li", {}, "Open Beaver from your home screen"));
+        el("li", {}, "Open Beaver Transceiver from your home screen"));
       steps.append(btn, manual);
       let deferred = null;
       window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; btn.hidden = false; manual.hidden = true; });
       btn.onclick = async () => { if (!deferred) return; deferred.prompt(); const r = await deferred.userChoice.catch(() => null); deferred = null; btn.hidden = true; if (r?.outcome !== "accepted") manual.hidden = false; };
       window.addEventListener("appinstalled", () => {
         try { localStorage.setItem("bt-installed", "1"); } catch {}
-        steps.replaceChildren(note("Installed! Open Beaver from your home screen.", "good"));
+        steps.replaceChildren(note("Installed! Open Beaver Transceiver from your home screen.", "good"));
       });
       card.append(openBox, steps);
       if (installed) showInstalled();
@@ -122,7 +122,7 @@
         el("ol", { class: "gate-list" },
           el("li", {}, el("span", {}, "Tap the Share button ", share, " in Safari's toolbar")),
           el("li", {}, "Scroll down and tap “Add to Home Screen”"),
-          el("li", {}, "Tap “Add”, then open Beaver from your Home Screen")),
+          el("li", {}, "Tap “Add”, then open Beaver Transceiver from your Home Screen")),
         note("Already installed? Open Beaver Transceiver from your Home Screen. This browser tab can't open it for you."));
     }
     card.append(...inviteHint());
