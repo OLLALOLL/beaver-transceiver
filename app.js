@@ -2523,6 +2523,12 @@ function renderSettings(){
   const out=h("button",{className:"btn ghost",textContent:"Sign out"}); out.onclick=()=>sb.auth.signOut();
   const del=h("button",{className:"btn text-danger",textContent:"Delete my account"}); del.onclick=deleteAccountSheet;
   box.append(out, del, h("div",{className:"hint",style:"text-align:center",textContent:"Signed in as "+(S.me.email||"")}));
+  const bm=document.querySelector('meta[name="bt-build"]');
+  if(bm){
+    const at=new Date(bm.dataset.at);
+    const when=isNaN(at) ? "" : at.toLocaleDateString("en-GB",{ day:"numeric", month:"long", year:"numeric" })+", "+at.toLocaleTimeString("en-GB",{ hour:"2-digit", minute:"2-digit" });
+    box.append(h("div",{className:"build-line",textContent:`Version ${bm.content}`+(when?` · Last update ${when}`:"")}));
+  }
 }
 function myQr(){ qrSheet(`${BASE}?add=${S.profile.username}`, "Add me on Beaver Transceiver"); }
 $("myQrBtn2").onclick=myQr;
