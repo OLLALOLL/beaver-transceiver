@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-<link rel="stylesheet" href="app.css?v=3019236">
+<link rel="stylesheet" href="app.css?v=3019291">
 <script>
 try{
   var t=localStorage.getItem("bt-theme"); if(t==="light"||t==="dark") document.documentElement.dataset.theme=t;
@@ -123,6 +123,9 @@ try{
           <label class="lbl" for="suUser">Username <em id="suUserNote"></em></label>
           <div class="prefix"><span>@</span><input class="input" id="suUser" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="beaver_ollie"></div>
           <div class="hint">3–20 characters: lowercase letters, numbers, dots or underscores. Friends find you with this.</div>
+          <label class="lbl" for="suBday">Birthday</label>
+          <input class="input" id="suBday" type="date" min="1900-01-01" autocomplete="bday">
+          <div class="hint">Only friends see the day and month. Your age stays hidden unless you choose to show it.</div>
         </div>
         <label class="lbl" for="authEmail" id="authEmailLbl">Email or username</label>
         <input class="input" id="authEmail" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -173,6 +176,8 @@ try{
         <label class="lbl" for="stUser">Username <em id="stUserNote"></em></label>
         <div class="prefix"><span>@</span><input class="input" id="stUser" maxlength="20" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
         <div class="hint">3–20 characters: lowercase letters, numbers, dots or underscores.</div>
+        <label class="lbl" for="stBday">Birthday</label>
+        <input class="input" id="stBday" type="date" min="1900-01-01" autocomplete="bday">
         <div class="err" id="setupErr" role="alert"></div>
         <button class="btn" id="setupBtn" type="submit">Continue</button>
       </form>
@@ -294,10 +299,10 @@ try{
 <div class="room-pill" id="roomPill" hidden></div>
 <div class="toast" id="toast" role="status"></div>
 
-<script src="gate.js?v=3019236"></script>
+<script src="gate.js?v=3019291"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
-<script src="app.js?v=3019236"></script>
+<script src="app.js?v=3019291"></script>
 </body>
 </html>

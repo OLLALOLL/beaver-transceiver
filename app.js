@@ -278,6 +278,7 @@ $("authForm").addEventListener("submit", async (e)=>{
   if(mode==="up"){
     if(!$("suDisplay").value.trim()){ err.textContent="Enter a display name."; return; }
     if(!USER_RE.test($("suUser").value.trim())){ err.textContent="Usernames are 3–20 lowercase letters, numbers, dots or underscores."; return; }
+    if(!validBday($("suBday").value)){ err.textContent="Enter your birthday."; return; }
   }
   const isEmail=/^\S+@\S+\.\S+$/.test(email);
   if(mode==="in" && !isEmail && !USER_RE.test(email.replace(/^@/,"").toLowerCase())){ err.textContent="Enter your email or username."; return; }
@@ -299,7 +300,7 @@ $("authForm").addEventListener("submit", async (e)=>{
     } else {
       const user=$("suUser").value.trim();
       if(!(await usernameFree(user))){ err.textContent="That username is taken. Pick another."; $("suUserNote").textContent="Taken"; $("suUserNote").className="bad"; return; }
-      const { data, error } = await sb.auth.signUp({ email, password, options:{ emailRedirectTo:BASE, data:{ bt_username:user, bt_display_name:$("suDisplay").value.trim() } } });
+      const { data, error } = await sb.auth.signUp({ email, password, options:{ emailRedirectTo:BASE, data:{ bt_username:user, bt_display_name:$("suDisplay").value.trim(), bt_birthday:$("suBday").value } } });
       if(error) throw error;
       if(data.user && Array.isArray(data.user.identities) && data.user.identities.length===0){ err.textContent="That email already has an account. Sign in instead."; return; }
       if(data.session && !data.user?.email_confirmed_at) await sb.auth.signOut();
@@ -310,7 +311,7 @@ $("authForm").addEventListener("submit", async (e)=>{
     err.textContent =
       m.includes("invalid login") ? (/@.+\./.test(email) ? "Wrong email or password." : "Wrong username or password.") :
       m.includes("already registered") ? "That email already has an account. Sign in instead." :
-      m.includes("database error saving new user") ? "That username was just taken. Pick another." :
+      m.includes("database error saving new user") ? "Couldn't create the account. Check your birthday and username, then try again." :
       m.includes("rate limit") ? "Too many tries. Wait a minute and try again." :
       friendlyErr(ex, ex?.message || "Something went wrong. Try again.");
   }finally{ btn.disabled=false; }
@@ -358,14 +359,21 @@ function newPasswordSheet(){
 }
 
 /* setup profile */
+function validBday(v){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v||"")) return false;
+  const d=new Date(v+"T12:00:00"); return !isNaN(d) && d.getFullYear()>=1900 && d<=new Date();
+}
+for(const id of ["suBday","stBday"]) $(id).max=new Date().toISOString().slice(0,10);
 watchUsername($("stUser"), $("stUserNote"));
 $("setupForm").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const d=$("stDisplay").value.trim(), u=$("stUser").value.trim(), err=$("setupErr");
   if(!d){ err.textContent="Enter a display name."; return; }
   if(!USER_RE.test(u)){ err.textContent="Usernames are 3–20 lowercase letters, numbers, dots or underscores."; return; }
+  const bd=$("stBday").value; if(!validBday(bd)){ err.textContent="Enter your birthday."; return; }
   $("setupBtn").disabled=true;
   const { error } = await sb.from("bt_profiles").insert({ id:S.me.id, username:u, display_name:d });
+  if(!error) await sb.from("bt_birthdays").upsert({ user_id:S.me.id, birthday:bd, show_year:false });
   $("setupBtn").disabled=false;
   if(error){ err.textContent=friendlyErr(error,"Couldn't save. Try again."); return; }
   enter();
@@ -2362,6 +2370,8 @@ $("meForm").addEventListener("submit", async (e)=>{
     if(!(await usernameFree(u))){ err.textContent="That username is taken. Pick another."; return; }
     patch.username=u;
   }
+  if(S.bdays[S.me.id] && !$("meBdayIn").value){ err.textContent="Your birthday can't be removed. You can hide the year instead."; return; }
+  if($("meBdayIn").value && !validBday($("meBdayIn").value)){ err.textContent="That birthday doesn't look right."; return; }
   const warn=[]; if(patch.username) warn.push("username (next change in 180 days)"); if(patch.display_name) warn.push("display name (next change in 30 days)");
   if(warn.length && $("meSave").dataset.confirm!=="1"){ $("meSave").dataset.confirm="1"; $("meSave").textContent="Tap again to confirm"; err.textContent="You're changing your "+warn.join(" and ")+"."; return; }
   $("meSave").dataset.confirm=""; $("meSave").textContent="Save profile";
@@ -2373,7 +2383,7 @@ $("meForm").addEventListener("submit", async (e)=>{
   if(bday && (!cur || cur.birthday!==bday || cur.show_year!==year)){
     const { error:be } = await sb.from("bt_birthdays").upsert({ user_id:S.me.id, birthday:bday, show_year:year });
     if(!be) S.bdays[S.me.id]={ user_id:S.me.id, birthday:bday, show_year:year };
-  } else if(!bday && cur){ await sb.from("bt_birthdays").delete().eq("user_id",S.me.id); delete S.bdays[S.me.id]; }
+  }
   S.profile=S.P[S.me.id]=data; renderMe(); fillMeForm(); toast("Profile saved");
 });
 function renderLinkEditor(list){
