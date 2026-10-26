@@ -623,3 +623,7 @@ body[data-view="chat"] .room-pill{bottom:calc(84px + var(--sab))}
 .crop-foot svg:last-child{width:24px;height:24px}
 .crop-zoom{flex:1;accent-color:var(--accent)}
 .crop-hint{margin:6px 0 0;text-align:center;font-size:.8rem;color:rgb(255 255 255 / .6)}
+
+/* ---------- update screen ---------- */
+.update-screen{z-index:80}
+.update-screen .card .btn{margin-top:0}

@@ -3228,6 +3228,37 @@ async function handleDeepLink(){
 }
 navigator.serviceWorker?.addEventListener("message",(e)=>{ if(e.data?.type==="open" && e.data.url){ const u=new URL(e.data.url, BASE); const c=u.searchParams.get("c"); const call=u.searchParams.get("call"); if(call) sb.from("bt_calls").select("*").eq("id",call).maybeSingle().then(({data})=>{ if(data) onCallInsert(data); }); const dm=u.searchParams.get("dm"); if(dm && isFriend(dm)) openDM(dm); if(c && S.convs.some(x=>x.id===c)){ setTab("chats"); openConv(c); } else if(u.searchParams.get("tab")==="friends") setTab("friends"); } });
 
+/* ================= updates ================= */
+// app.js is loaded as app.js?v=<version>; version.json on the server holds the newest one
+const APP_V=(document.querySelector('script[src*="app.js"]')?.src.match(/[?&]v=(\w+)/)||[])[1]||"";
+let updateShown=false, updateWaiting=false;
+async function checkVersion(){
+  if(updateShown || !APP_V || !navigator.onLine) return;
+  try{
+    const r=await fetch("version.json?t="+Date.now(),{ cache:"no-store" }); if(!r.ok) return;
+    const { v }=await r.json();
+    if(!v || v===APP_V) return;
+    if(C.call || R.joined){ updateWaiting=true; return; } // never interrupt a call
+    showUpdate();
+  }catch{}
+}
+function showUpdate(){
+  updateShown=true;
+  const go=h("button",{className:"btn",type:"button",textContent:"Update now"});
+  go.onclick=async()=>{
+    go.disabled=true; go.textContent="Updating…";
+    try{ const reg=await navigator.serviceWorker?.getRegistration(); await reg?.update(); }catch{}
+    try{ for(const k of await caches.keys()) if(k.startsWith("bt-shell")) await caches.delete(k); }catch{}
+    location.reload();
+  };
+  document.body.append(h("div",{className:"auth update-screen"}, h("div",{className:"inner"},
+    h("div",{className:"hero"}, svg("logo"), h("h1",{textContent:"Update available"}), h("p",{textContent:"A new version of Beaver Transceiver is ready. Update to keep chatting."})),
+    h("div",{className:"card"}, go))));
+}
+setInterval(()=>{ if(updateWaiting && !C.call && !R.joined){ updateWaiting=false; showUpdate(); } else checkVersion(); }, 5*60e3);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkVersion(); });
+setTimeout(checkVersion, 3000);
+
 /* ================= boot ================= */
 async function enter(){
   if(!S.me.email_confirmed_at){ const email=S.me.email; await sb.auth.signOut(); showMail(email); return; }

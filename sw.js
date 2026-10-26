@@ -1,6 +1,6 @@
-const CACHE = "bt-shell-3019852";
+const CACHE = "bt-shell-3019962";
 const SHELL = [
-  "./", "./index.html", "./gate.js?v=3019852", "./app.js?v=3019852", "./app.css?v=3019852", "./manifest.webmanifest",
+  "./", "./index.html", "./gate.js?v=3019962", "./app.js?v=3019962", "./app.css?v=3019962", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
@@ -19,6 +19,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.hostname.endsWith("supabase.co")) return;
+  if (url.pathname.endsWith("version.json")) return; // always ask the network
   const isShell = url.origin === location.origin;
   const isLib = /cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|fonts\.(googleapis|gstatic)\.com/.test(url.hostname);
   if (!isShell && !isLib) return;
