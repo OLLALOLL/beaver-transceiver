@@ -91,7 +91,7 @@
     const showInstalled = () => {
       openBox.replaceChildren(
         el("h3", { class: "gate-h" }, "You already have the app"),
-        el("p", { class: "gate-small" }, iOS ? "Open Beaver Transceiver from your Home Screen." : "Open Beaver Transceiver from your home screen or app drawer."));
+        el("p", { class: "gate-small" }, iOS ? "Open Transceiver from your Home Screen." : "Open Transceiver from your home screen or app drawer."));
       if (android) {
         const open = el("a", { class: "btn", href: "intent://" + location.host + location.pathname + location.search + "#Intent;scheme=https;end" }, "Open the app");
         openBox.append(open);
@@ -104,14 +104,14 @@
       const manual = el("ol", { class: "gate-list" },
         el("li", {}, "Tap the ⋮ menu in the top corner of Chrome"),
         el("li", {}, "Choose “Install app” or “Add to Home screen”"),
-        el("li", {}, "Open Beaver Transceiver from your home screen"));
+        el("li", {}, "Open Transceiver from your home screen"));
       steps.append(btn, manual);
       let deferred = null;
       window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; btn.hidden = false; manual.hidden = true; });
       btn.onclick = async () => { if (!deferred) return; deferred.prompt(); const r = await deferred.userChoice.catch(() => null); deferred = null; btn.hidden = true; if (r?.outcome !== "accepted") manual.hidden = false; };
       window.addEventListener("appinstalled", () => {
         try { localStorage.setItem("bt-installed", "1"); } catch {}
-        steps.replaceChildren(note("Installed! Open Beaver Transceiver from your home screen.", "good"));
+        steps.replaceChildren(note("Installed! Open Transceiver from your home screen.", "good"));
       });
       card.append(openBox, steps);
       if (installed) showInstalled();
@@ -122,8 +122,8 @@
         el("ol", { class: "gate-list" },
           el("li", {}, el("span", {}, "Tap the Share button ", share, " in Safari's toolbar")),
           el("li", {}, "Scroll down and tap “Add to Home Screen”"),
-          el("li", {}, "Tap “Add”, then open Beaver Transceiver from your Home Screen")),
-        note("Already installed? Open Beaver Transceiver from your Home Screen. This browser tab can't open it for you."));
+          el("li", {}, "Tap “Add”, then open Transceiver from your Home Screen")),
+        note("Already installed? Open Transceiver from your Home Screen. This browser tab can't open it for you."));
     }
     card.append(...inviteHint());
     document.body.append(wrap);

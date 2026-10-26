@@ -1,6 +1,6 @@
 {
   "name": "Beaver Transceiver",
-  "short_name": "Beaver Transceiver",
+  "short_name": "Transceiver",
   "description": "Chat with friends: DMs, groups, calls and voice rooms.",
   "start_url": "./",
   "scope": "./",
