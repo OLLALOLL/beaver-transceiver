@@ -259,6 +259,9 @@ function setMode(m){
   $("upFields").hidden = m!=="up"; $("forgotWrap").hidden = m!=="in";
   $("authBtn").textContent = m==="in" ? "Sign in" : "Create account";
   $("authPass").autocomplete = m==="in" ? "current-password" : "new-password";
+  $("authEmailLbl").textContent = m==="in" ? "Email or username" : "Email";
+  $("authEmail").type = m==="in" ? "text" : "email";
+  $("authEmail").autocomplete = m==="in" ? "username" : "email";
   $("authErr").textContent="";
 }
 $("tabIn").onclick=()=>setMode("in"); $("tabUp").onclick=()=>setMode("up");
@@ -272,11 +275,20 @@ $("authForm").addEventListener("submit", async (e)=>{
     if(!$("suDisplay").value.trim()){ err.textContent="Enter a display name."; return; }
     if(!USER_RE.test($("suUser").value.trim())){ err.textContent="Usernames are 3–20 lowercase letters, numbers, dots or underscores."; return; }
   }
-  if(!/^\S+@\S+\.\S+$/.test(email)){ err.textContent="Enter a valid email address."; return; }
+  const isEmail=/^\S+@\S+\.\S+$/.test(email);
+  if(mode==="in" && !isEmail && !USER_RE.test(email.replace(/^@/,"").toLowerCase())){ err.textContent="Enter your email or username."; return; }
+  if(mode==="up" && !isEmail){ err.textContent="Enter a valid email address."; return; }
   if(password.length<6){ err.textContent="Passwords need at least 6 characters."; return; }
   const btn=$("authBtn"); btn.disabled=true;
   try{
-    if(mode==="in"){
+    if(mode==="in" && !isEmail){
+      const r = await loginFn({ action:"login", username:email, password });
+      if(r.error==="unconfirmed"){ showMail(r.email); return; }
+      if(r.error==="rate_limit") throw new Error("rate limit");
+      if(r.error || !r.access_token) throw new Error("invalid login");
+      const { error } = await sb.auth.setSession({ access_token:r.access_token, refresh_token:r.refresh_token });
+      if(error) throw error;
+    } else if(mode==="in"){
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if(error){ if(/email not confirmed/i.test(error.message)){ showMail(email); return; } throw error; }
     } else {
@@ -291,16 +303,28 @@ $("authForm").addEventListener("submit", async (e)=>{
   }catch(ex){
     const m=(ex?.message||"").toLowerCase();
     err.textContent =
-      m.includes("invalid login") ? "Wrong email or password." :
+      m.includes("invalid login") ? (/@.+\./.test(email) ? "Wrong email or password." : "Wrong username or password.") :
       m.includes("already registered") ? "That email already has an account. Sign in instead." :
       m.includes("database error saving new user") ? "That username was just taken. Pick another." :
       m.includes("rate limit") ? "Too many tries. Wait a minute and try again." :
       friendlyErr(ex, ex?.message || "Something went wrong. Try again.");
   }finally{ btn.disabled=false; }
 });
+async function loginFn(body){
+  try{
+    const res = await fetch(SUPABASE_URL+"/functions/v1/bt-login",{ method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) });
+    return await res.json();
+  }catch{ throw new Error("Couldn't reach the server. Check your connection."); }
+}
 $("forgotBtn").onclick=async()=>{
   const email=$("authEmail").value.trim();
-  if(!/^\S+@\S+\.\S+$/.test(email)){ $("authErr").textContent="Type your email above first, then tap “Forgot your password?”."; return; }
+  if(!/^\S+@\S+\.\S+$/.test(email)){
+    const u=email.replace(/^@/,"").toLowerCase();
+    if(!USER_RE.test(u)){ $("authErr").textContent="Type your email or username above first, then tap “Forgot your password?”."; return; }
+    try{ await loginFn({ action:"reset", username:u }); $("authErr").textContent=""; toast("If @"+u+" exists, a reset link was sent to its email"); }
+    catch(ex){ $("authErr").textContent=ex.message; }
+    return;
+  }
   const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo:BASE });
   $("authErr").textContent = error ? friendlyErr(error,"Couldn't send the reset email. Try again in a minute.") : "";
   if(!error) toast("Reset link sent to "+email);
