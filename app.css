@@ -605,3 +605,21 @@ body[data-view="chat"] .room-pill{bottom:calc(84px + var(--sab))}
 .gate-invite{display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:var(--r-md);padding:10px 10px 10px 14px}
 .gate-invite small{display:block;font-size:.72rem;color:var(--muted);font-weight:600}
 .gate-invite code{flex:1;font-family:var(--f-mono);font-size:1rem}
+
+/* ---------- image crop ---------- */
+.crop{position:fixed;inset:0;z-index:55;background:#000;color:#fff;display:flex;flex-direction:column;padding:var(--sat) 0 calc(14px + var(--sab));touch-action:none}
+.crop-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;flex:none}
+.crop-bar b{font-weight:700}
+.crop-btn{height:38px;padding:0 14px;border-radius:999px;font-weight:600;color:#fff}
+.crop-btn.primary{background:var(--accent);color:var(--accent-ink)}
+.crop-btn:disabled{opacity:.6}
+.crop-stage{flex:1;position:relative;overflow:hidden;touch-action:none;cursor:grab}
+.crop-img{position:absolute;left:50%;top:50%;max-width:none;user-select:none;-webkit-user-select:none;pointer-events:none}
+.crop-frame{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 9999px rgb(0 0 0 / .62);outline:2px solid rgb(255 255 255 / .9);border-radius:14px;pointer-events:none}
+.crop-frame.round{border-radius:50%}
+.crop-frame.group{border-radius:30%}
+.crop-foot{display:flex;align-items:center;gap:12px;padding:14px 24px 4px;flex:none}
+.crop-foot svg{width:16px;height:16px;opacity:.7;flex:none}
+.crop-foot svg:last-child{width:24px;height:24px}
+.crop-zoom{flex:1;accent-color:var(--accent)}
+.crop-hint{margin:6px 0 0;text-align:center;font-size:.8rem;color:rgb(255 255 255 / .6)}

@@ -1922,6 +1922,75 @@ async function resizeImage(file, max, square){
   if(!blob || blob.type!=="image/webp") blob=await new Promise(r=>cv.toBlob(r,"image/jpeg",.86));
   return { blob, w, h:hh };
 }
+/* ---- crop: drag to move, pinch or slide to zoom ---- */
+function cropSheet(file, opt){
+  return new Promise((resolve)=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image(); img.decoding="async";
+    img.onerror=()=>{ URL.revokeObjectURL(url); toast("Couldn't open that picture"); resolve(null); };
+    img.onload=()=>{
+      const iw=img.naturalWidth, ih=img.naturalHeight;
+      if(!iw || !ih){ img.onerror(); return; }
+      const ratio=opt.w/opt.h;
+      const cancel=h("button",{className:"crop-btn",type:"button",textContent:"Cancel"});
+      const done=h("button",{className:"crop-btn primary",type:"button",textContent:"Done"});
+      const stage=h("div",{className:"crop-stage"});
+      const frame=h("div",{className:"crop-frame"+(opt.round?" round":opt.group?" group":"")});
+      const zoom=h("input",{type:"range",className:"crop-zoom",min:"1",max:"4",step:"0.01",value:"1","aria-label":"Zoom"});
+      img.className="crop-img"; img.draggable=false; img.alt="";
+      stage.append(img, frame);
+      const ui=h("div",{className:"crop"},
+        h("div",{className:"crop-bar"}, cancel, h("b",{textContent:opt.title||"Crop"}), done),
+        stage,
+        h("div",{className:"crop-foot"}, svg("i-image"), zoom, svg("i-image")),
+        h("p",{className:"crop-hint",textContent:"Drag to move · pinch or slide to zoom"}));
+      document.body.append(ui);
+      let fw=0, fh=0, base=1, k=1, tx=0, ty=0;
+      const scale=()=>base*k;
+      function layout(){
+        const r=stage.getBoundingClientRect();
+        const maxW=r.width-32, maxH=r.height-32;
+        fw=Math.min(maxW, maxH*ratio); fh=fw/ratio;
+        frame.style.width=fw+"px"; frame.style.height=fh+"px";
+        base=Math.max(fw/iw, fh/ih); clamp(); draw();
+      }
+      function clamp(){
+        const s=scale(), mx=Math.max(0,(iw*s-fw)/2), my=Math.max(0,(ih*s-fh)/2);
+        tx=Math.min(mx,Math.max(-mx,tx)); ty=Math.min(my,Math.max(-my,ty));
+      }
+      function draw(){ const s=scale(); img.style.width=iw*s+"px"; img.style.height=ih*s+"px"; img.style.transform=`translate(-50%,-50%) translate(${tx}px,${ty}px)`; }
+      function setK(nk){ const old=k; k=Math.min(4,Math.max(1,nk)); tx*=k/old; ty*=k/old; zoom.value=String(k); clamp(); draw(); }
+      zoom.oninput=()=>setK(parseFloat(zoom.value));
+      const pts=new Map(); let pinch=null;
+      stage.addEventListener("pointerdown",(e)=>{ stage.setPointerCapture(e.pointerId); pts.set(e.pointerId,{ x:e.clientX, y:e.clientY }); if(pts.size===2){ const [a,b]=[...pts.values()]; pinch={ d:Math.hypot(a.x-b.x,a.y-b.y), k }; } });
+      stage.addEventListener("pointermove",(e)=>{
+        const p=pts.get(e.pointerId); if(!p) return;
+        const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+        if(pts.size===1){ tx+=dx; ty+=dy; clamp(); draw(); }
+        else if(pts.size===2 && pinch){ const [a,b]=[...pts.values()]; setK(pinch.k*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d); tx+=dx/2; ty+=dy/2; clamp(); draw(); }
+      });
+      const up=(e)=>{ pts.delete(e.pointerId); if(pts.size<2) pinch=null; };
+      stage.addEventListener("pointerup",up); stage.addEventListener("pointercancel",up);
+      stage.addEventListener("wheel",(e)=>{ e.preventDefault(); setK(k*(e.deltaY<0?1.08:0.92)); },{ passive:false });
+      const close=(v)=>{ window.removeEventListener("resize",layout); ui.remove(); URL.revokeObjectURL(url); resolve(v); };
+      cancel.onclick=()=>close(null);
+      done.onclick=async()=>{
+        done.disabled=true;
+        const s=scale();
+        const sw=fw/s, sh=fh/s, sx=iw/2+(-fw/2-tx)/s, sy=ih/2+(-fh/2-ty)/s;
+        const ow=opt.w, oh=opt.h;
+        const cv=document.createElement("canvas"); cv.width=ow; cv.height=oh;
+        const cx=cv.getContext("2d"); cx.imageSmoothingQuality="high"; cx.drawImage(img,sx,sy,sw,sh,0,0,ow,oh);
+        let blob=await new Promise(r=>cv.toBlob(r,"image/webp",.88));
+        if(!blob || blob.type!=="image/webp") blob=await new Promise(r=>cv.toBlob(r,"image/jpeg",.88));
+        close(blob);
+      };
+      window.addEventListener("resize",layout);
+      requestAnimationFrame(layout);
+    };
+    img.src=url;
+  });
+}
 async function cropImage(file, outW, outH){
   const bmp = await (window.createImageBitmap ? createImageBitmap(file).catch(()=>null) : null) || await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); });
   const target=outW/outH; let sw=bmp.width, sh=bmp.height;
@@ -2159,10 +2228,10 @@ function editGroupSheet(c){
     const file=h("input",{type:"file",accept:"image/*",hidden:true});
     pic.onclick=()=>file.click();
     file.onchange=async()=>{
-      const f=file.files[0]; if(!f) return;
+      const f=file.files[0]; file.value=""; if(!f) return;
+      const blob=await cropSheet(f,{ w:400, h:400, group:true, title:"Group photo" }); if(!blob) return;
       toast("Uploading…");
       try{
-        const { blob }=await resizeImage(f,400,true);
         const path=`g/${c.id}/${Date.now()}.${blob.type==="image/webp"?"webp":"jpg"}`;
         const { error:up }=await sb.storage.from("bt-avatars").upload(path, blob, { contentType:blob.type, cacheControl:"31536000" });
         if(up) throw up;
@@ -2389,9 +2458,10 @@ $("avatarFile").addEventListener("change", async ()=>{ const f=$("avatarFile").f
 $("bannerFile").addEventListener("change", async ()=>{ const f=$("bannerFile").files[0]; $("bannerFile").value=""; if(f) uploadProfileImage(f,"banner_url"); });
 async function uploadProfileImage(file, field){
   if(!file.type.startsWith("image/")){ toast("Pick an image file"); return; }
+  const blob = await cropSheet(file, field==="avatar_url" ? { w:400, h:400, round:true, title:"Profile picture" } : { w:1500, h:500, title:"Banner" });
+  if(!blob) return;
   toast("Uploading…");
   try{
-    const blob = field==="avatar_url" ? (await resizeImage(file,320,true)).blob : await cropImage(file,1200,400);
     const path=`${S.me.id}/${field==="avatar_url"?"av":"banner"}-${Date.now()}.${blob.type==="image/webp"?"webp":"jpg"}`;
     const { error:up } = await sb.storage.from("bt-avatars").upload(path, blob, { contentType:blob.type, cacheControl:"31536000" });
     if(up) throw up;
