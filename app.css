@@ -628,3 +628,4 @@ body[data-view="chat"] .room-pill{bottom:calc(84px + var(--sab))}
 .update-screen{z-index:80}
 .update-screen .card .btn{margin-top:0}
 .build-line{text-align:center;font-size:.72rem;color:var(--faint);margin-top:18px;opacity:.8}
+.gate-card .code-box{padding:8px 14px}.gate-card .code-box code{text-align:center}
