@@ -14,6 +14,7 @@
   const q = new URLSearchParams(location.search);
   const hash = location.hash || "";
   const BASE = location.origin + location.pathname;
+  const SHARE = "https://ollaloll.com/beaver/"; // short address that forwards to the app (keeps ?join= / ?add=)
 
   const allowed = mobile && standalone;
   window.BT_ALLOWED_HERE = allowed;
@@ -61,9 +62,9 @@
       if (confirmed) card.append(note("Your email is confirmed. Open Beaver Transceiver on your phone and sign in.", "good"));
       if (resetDone) card.append(note("Your password is changed. Sign in on your phone with the new one.", "good"));
       const qr = el("div", { class: "qr", id: "gateQr" });
-      card.append(qr, el("p", { class: "gate-small", style: "text-align:center" }, "Scan with your phone's camera"), el("div", { class: "code-box" }, el("code", {}, BASE)));
+      card.append(qr, el("p", { class: "gate-small", style: "text-align:center" }, "Scan with your phone's camera"), el("div", { class: "code-box" }, el("code", {}, SHARE.replace("https://", "").replace(/\/$/, ""))));
       inner.append(card);
-      const drawQr = () => { if (window.QRCode) { new QRCode(qr, { text: BASE + (location.search || ""), width: 180, height: 180, colorDark: "#0f1419", colorLight: "#ffffff" }); return true; } return false; };
+      const drawQr = () => { if (window.QRCode) { new QRCode(qr, { text: SHARE + (location.search || ""), width: 180, height: 180, colorDark: "#0f1419", colorLight: "#ffffff" }); return true; } return false; };
       if (!drawQr()) window.addEventListener("load", () => { if (!drawQr()) qr.remove(); });
       document.body.append(wrap); return;
     }
@@ -80,9 +81,9 @@
     if (inApp) {
       card.append(el("h3", { class: "gate-h" }, "Open this in your browser first"),
         el("p", { class: "gate-small" }, iOS ? "This app's built-in browser can't install apps. Tap ··· or the share button and choose “Open in Safari”." : "This app's built-in browser can't install apps. Tap ⋮ and choose “Open in Chrome”, or copy the link below."),
-        el("div", { class: "code-box" }, el("code", {}, BASE)));
+        el("div", { class: "code-box" }, el("code", {}, SHARE.replace("https://", "").replace(/\/$/, ""))));
       const copy = el("button", { class: "btn ghost", type: "button" }, "Copy link");
-      copy.onclick = () => navigator.clipboard?.writeText(BASE + location.search).then(() => { copy.textContent = "Link copied"; });
+      copy.onclick = () => navigator.clipboard?.writeText(SHARE + location.search).then(() => { copy.textContent = "Link copied"; });
       card.append(copy, ...inviteHint());
       document.body.append(wrap); return;
     }

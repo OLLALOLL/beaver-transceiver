@@ -5,6 +5,7 @@ const SUPABASE_URL = "https://zrslvneipbgtivhlygfd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_3M5msWhxHlC7cOfY5X4NeQ_Lbc1bR3f";
 const VAPID_PUBLIC = "BLgsV3h4QeDmlsulruH0VsGcfGeje7XBq1cdWxzYo9gSgWejPcjz4fxKUF--fq_DhKTNnP1gG_x04GJ9z842WSQ";
 const BASE = location.origin + location.pathname;
+const SHARE = "https://ollaloll.com/beaver/"; // short address for links people share; forwards to the app
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
 const $ = (id) => document.getElementById(id);
@@ -2286,7 +2287,7 @@ async function invitesSheet(c){
     b.append(h("h2",{textContent:"Invite links"}), h("p",{className:"sub",textContent:"Anyone with a link can join "+c.name+", even if they aren't your friend. Delete a link to stop it working."}));
     const list=data||[];
     for(const inv of list){
-      const link=`${BASE}?join=${inv.code}`;
+      const link=`${SHARE}?join=${inv.code}`;
       const box=h("div",{className:"code-box"}, h("code",{textContent:link}));
       const cp=h("button",{className:"pill primary",textContent:"Copy"}); cp.onclick=()=>copyText(link,"Link copied");
       const qr=h("button",{className:"pill",textContent:"QR"}); qr.onclick=()=>qrSheet(link,"Scan to join "+c.name);
@@ -2530,7 +2531,7 @@ function renderSettings(){
     box.append(h("div",{className:"build-line",textContent:`Version ${bm.content}`+(when?` · Last update ${when}`:"")}));
   }
 }
-function myQr(){ qrSheet(`${BASE}?add=${S.profile.username}`, "Add me on Beaver Transceiver"); }
+function myQr(){ qrSheet(`${SHARE}?add=${S.profile.username}`, "Add me on Beaver Transceiver"); }
 $("myQrBtn2").onclick=myQr;
 function appearanceSheet(){
   openSheet(b=>{
