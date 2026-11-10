@@ -1,6 +1,6 @@
-const CACHE = "bt-shell-3319201";
+const CACHE = "bt-shell-4294151";
 const SHELL = [
-  "./", "./index.html", "./gate.js?v=3319201", "./app.js?v=3319201", "./app.css?v=3319201", "./manifest.webmanifest",
+  "./", "./index.html", "./gate.js?v=4294151", "./app.js?v=4294151", "./app.css?v=4294151", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
@@ -35,6 +35,36 @@ self.addEventListener("fetch", (e) => {
   );
 });
 
+/* Encrypted DMs: the push carries the sealed message; open it with this phone's key so the
+   notification can show the real text. Same maths as app.js (ECDH P-256 → HKDF → AES-GCM). */
+function keyFromDb(id) {
+  return new Promise((res) => {
+    const r = indexedDB.open("bt-e2e", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onerror = () => res(null);
+    r.onsuccess = () => { try { const g = r.result.transaction("keys").objectStore("keys").get("k-" + id); g.onsuccess = () => res(g.result || null); g.onerror = () => res(null); } catch { res(null); } };
+  });
+}
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function openSealed(d) {
+  const p = JSON.parse(d.enc);
+  const mine = await keyFromDb(d.to);
+  if (!mine || !mine.priv || mine.id !== p.r) return null;
+  const ec = { name: "ECDH", namedCurve: "P-256" };
+  const theirs = await crypto.subtle.importKey("jwk", { kty: "EC", crv: "P-256", x: d.jx, y: d.jy, ext: true }, ec, true, []);
+  const bits = await crypto.subtle.deriveBits({ name: "ECDH", public: theirs }, mine.priv, 256);
+  const hk = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
+  const te = new TextEncoder();
+  const key = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: te.encode(d.cid), info: te.encode("bt-dm-v1") }, hk, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(p.iv) }, key, unb64(p.c));
+  const m = JSON.parse(new TextDecoder().decode(pt));
+  const text = String(m.t || "").replace(/\s+/g, " ").replace(/\|\|[^|]+\|\|/g, "(spoiler)").trim().slice(0, 140);
+  if (d.mk === "image") return text ? "Photo: " + text : "Sent a photo";
+  if (d.mk === "audio") return "Sent a voice message";
+  if (d.mk === "file") return m.mm?.addon?.n ? "Sent an addon: " + m.mm.addon.n : "Sent a file: " + String(m.mm?.name || "file").slice(0, 80);
+  return text || null;
+}
+
 self.addEventListener("push", (e) => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { title: "Beaver Transceiver", body: e.data && e.data.text() }; }
@@ -44,8 +74,10 @@ self.addEventListener("push", (e) => {
     const cid = target.searchParams.get("c");
     const looking = wins.some((w) => w.visibilityState === "visible" && w.focused);
     if (looking && cid) return;
+    let body = data.body || "";
+    if (data.enc) { const t = await openSealed(data).catch(() => null); if (t) body = t; }
     await self.registration.showNotification(data.title || "Beaver Transceiver", {
-      body: data.body || "",
+      body,
       tag: data.tag || undefined,
       renotify: !!data.tag,
       icon: "icon-192.png",

@@ -2520,7 +2520,7 @@ function renderSettings(){
     menuBtn("🔐  Email & password",accountSheet)
   );
   if(S.profile?.is_admin) menu.append(menuBtn("🛡️  Admin",adminSheet));
-  box.append(menu);
+  box.append(pushToggleCard(), menu);
   const out=h("button",{className:"btn ghost",textContent:"Sign out"}); out.onclick=()=>sb.auth.signOut();
   const del=h("button",{className:"btn text-danger",textContent:"Delete my account"}); del.onclick=deleteAccountSheet;
   box.append(out, del, h("div",{className:"hint",style:"text-align:center",textContent:"Signed in as "+(S.me.email||"")}));
@@ -2597,6 +2597,21 @@ async function notificationsSheet(){
     b.append(h("p",{className:"hint",textContent:"You can mute single chats or set them to @mentions only from each chat's menu."}));
   });
 }
+// on/off switch right in the Profile tab
+function pushToggleCard(){
+  const supported="serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const cb=h("input",{type:"checkbox",disabled:!supported,"aria-label":"Notifications"});
+  const sub=h("small",{textContent: supported ? "Messages, calls and friend requests, even when the app is closed." : "Not supported on this device."});
+  const card=h("label",{className:"toggle push-card"}, svg("i-bell"), h("span",{}, h("b",{textContent:"Notifications"}), sub), cb);
+  const sync=async()=>{
+    if(!supported) return;
+    try{ const reg=await navigator.serviceWorker.getRegistration(); cb.checked=Notification.permission==="granted" && !!(await reg?.pushManager.getSubscription()); }catch{}
+    if(Notification.permission==="denied"){ sub.textContent="Blocked. Allow notifications for this app in your phone's settings."; }
+  };
+  cb.onchange=async()=>{ cb.disabled=true; const ok = cb.checked ? await enablePush() : await disablePush(); if(!ok) cb.checked=!cb.checked; cb.disabled=false; sync(); };
+  sync();
+  return card;
+}
 async function swReg(){ if(!("serviceWorker" in navigator)) return null; return navigator.serviceWorker.getRegistration() .then(r=>r||navigator.serviceWorker.register("sw.js")); }
 function b64ToBytes(s){ const pad="=".repeat((4-s.length%4)%4); const raw=atob((s+pad).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from(raw,c=>c.charCodeAt(0)); }
 async function enablePush(quiet){
@@ -2608,6 +2623,7 @@ async function enablePush(quiet){
     const j=sub.toJSON();
     const { error } = await sb.from("bt_push_subs").insert({ endpoint:j.endpoint, user_id:S.me.id, p256dh:j.keys.p256dh, auth:j.keys.auth });
     if(error && !/duplicate/i.test(error.message)) throw error;
+    try{ localStorage.removeItem("bt-push-off"); }catch{}
     toast("Notifications on"); return true;
   }catch{ if(!quiet) toast("Couldn't turn on notifications on this device"); return false; }
 }
@@ -2616,6 +2632,7 @@ async function autoPush(){
   if(!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) return;
   const perm=Notification.permission;
   if(perm==="denied") return;
+  try{ if(localStorage.getItem("bt-push-off")==="1") return; }catch{} // they switched it off themselves
   if(perm==="granted"){
     try{
       const reg=await swReg(); await navigator.serviceWorker.ready;
@@ -2641,7 +2658,8 @@ async function disablePush(){
   try{
     const reg=await swReg(); const sub=await reg?.pushManager.getSubscription();
     if(sub){ await sb.from("bt_push_subs").delete().eq("endpoint",sub.endpoint); await sub.unsubscribe(); }
-    toast("Push notifications off"); return true;
+    try{ localStorage.setItem("bt-push-off","1"); }catch{}
+    toast("Notifications off"); return true;
   }catch{ return false; }
 }
 let audioCtx=null;
